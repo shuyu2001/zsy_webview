@@ -5,7 +5,7 @@ package edge
 import (
 	"unsafe"
 
-	"github.com/shuyu2001/go-webview2/webviewloader"
+	"github.com/shuyu2001/zsy_webview/webviewloader"
 )
 
 func createCoreWebView2EnvironmentWithOptions(browserExecutableFolder, userDataFolder string, environmentCompletedHandle *iCoreWebView2CreateCoreWebView2EnvironmentCompletedHandler, additionalBrowserArgs string) error {

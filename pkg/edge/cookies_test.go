@@ -5,7 +5,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/shuyu2001/go-webview2/internal/w32"
+	"github.com/shuyu2001/zsy_webview/internal/w32"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"

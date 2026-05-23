@@ -4,8 +4,8 @@ import (
 	_ "embed"
 	"fmt"
 
-	zsy_webview "github.com/shuyu2001/go-webview2"
-	"github.com/shuyu2001/go-webview2/pkg/edge"
+	"github.com/shuyu2001/zsy_webview"
+	"github.com/shuyu2001/zsy_webview/pkg/edge"
 )
 
 type Action struct {

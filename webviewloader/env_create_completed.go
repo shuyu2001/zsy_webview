@@ -2,7 +2,7 @@
 
 package webviewloader
 
-import "github.com/shuyu2001/go-webview2/pkg/combridge"
+import "github.com/shuyu2001/zsy_webview/pkg/combridge"
 
 // HRESULT
 //

@@ -1,4 +1,4 @@
-module github.com/shuyu2001/go-webview2
+module github.com/shuyu2001/zsy_webview
 
 go 1.25.0
 

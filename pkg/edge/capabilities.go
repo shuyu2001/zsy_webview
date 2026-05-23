@@ -1,6 +1,6 @@
 package edge
 
-import "github.com/shuyu2001/go-webview2/webviewloader"
+import "github.com/shuyu2001/zsy_webview/webviewloader"
 
 type Capability string
 

@@ -120,6 +120,26 @@ func (w *window) CloseWindow(hwnd uintptr) {
 	w32.User32ShowWindow.Call(hwnd, uintptr(w32.WMClose), 0, 0)
 }
 
+func (w *window) DisableMaximizeButton() {
+	style := w32.GetWindowLong(w.hwnd, w32.GWLStyle)
+	style &^= w32.WSMaximizeBox
+	w32.SetWindowLong(w.hwnd, w32.GWLStyle, style)
+	w32.User32SetWindowPos.Call(
+		w.hwnd, 0, 0, 0, 0, 0,
+		w32.SWPNoMove|w32.SWPNoSize|w32.SWPNoZOrder|w32.SWPFrameChanged,
+	)
+}
+
+func (w *window) EnableMaximizeButton() {
+	style := w32.GetWindowLong(w.hwnd, w32.GWLStyle)
+	style |= w32.WSMaximizeBox
+	w32.SetWindowLong(w.hwnd, w32.GWLStyle, style)
+	w32.User32SetWindowPos.Call(
+		w.hwnd, 0, 0, 0, 0, 0,
+		w32.SWPNoMove|w32.SWPNoSize|w32.SWPNoZOrder|w32.SWPFrameChanged,
+	)
+}
+
 func newWindow(hwnd uintptr) *window {
 	return &window{hwnd: hwnd}
 }

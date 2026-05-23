@@ -10,6 +10,16 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func GetWindowLong(hwnd uintptr, index int) uintptr {
+	ret, _, _ := User32GetWindowLongPtrW.Call(hwnd, uintptr(index))
+	return ret
+}
+
+func SetWindowLong(hwnd uintptr, index int, newLong uintptr) uintptr {
+	ret, _, _ := User32SetWindowLongPtrW.Call(hwnd, uintptr(index), newLong)
+	return ret
+}
+
 var (
 	ole32               = windows.NewLazySystemDLL("ole32")
 	Ole32CoInitializeEx = ole32.NewProc("CoInitializeEx")

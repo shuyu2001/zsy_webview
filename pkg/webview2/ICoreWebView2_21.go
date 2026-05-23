@@ -3,9 +3,10 @@
 package webview2
 
 import (
-	"golang.org/x/sys/windows"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 type ICoreWebView2_21Vtbl struct {

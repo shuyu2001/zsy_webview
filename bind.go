@@ -1,4 +1,4 @@
-package main
+package zsy_webview
 
 import (
 	"encoding/json"

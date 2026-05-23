@@ -1,4 +1,4 @@
-package main
+package zsy_webview
 
 import (
 	"encoding/json"
@@ -9,67 +9,45 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/wailsapp/go-webview2/internal/w32"
-	"github.com/wailsapp/go-webview2/pkg/edge"
+	"github.com/shuyu2001/go-webview2/internal/w32"
+	"github.com/shuyu2001/go-webview2/pkg/edge"
 	"golang.org/x/sys/windows"
 )
 
-var (
-	user32DLL = windows.NewLazySystemDLL("user32.dll")
-	shcoreDLL = windows.NewLazySystemDLL("shcore.dll")
-
-	procSetProcessDpiAwarenessContext = user32DLL.NewProc("SetProcessDpiAwarenessContext")
-	procGetDpiForWindow               = user32DLL.NewProc("GetDpiForWindow")
-	procSetProcessDpiAwareness        = shcoreDLL.NewProc("SetProcessDpiAwareness")
-)
-
 const (
-	dpiAwarenessContextPerMonitorAwareV2 = ^uintptr(3)
-	dpiAwarenessContextPerMonitorAware   = ^uintptr(2)
-
-	processPerMonitorDpiAware = 2
-
-	baseDPI = 96
+	LOGPIXELSX = 88
+	LOGPIXELSY = 90
 )
 
-func initDPIAwareness() {
-	ret, _, _ := procSetProcessDpiAwarenessContext.Call(dpiAwarenessContextPerMonitorAwareV2)
-	if ret != 0 {
-		return
-	}
-	ret, _, _ = procSetProcessDpiAwarenessContext.Call(dpiAwarenessContextPerMonitorAware)
-	if ret != 0 {
-		return
-	}
-	procSetProcessDpiAwareness.Call(processPerMonitorDpiAware) //nolint:errcheck
+func init() {
+	aware := -4
+	w32.SetProcessDpiAwarenessContext.Call(uintptr(aware))
 }
 
-func getDPIForWindow(hwnd uintptr) uint32 {
-	if hwnd != 0 {
-		dpi, _, _ := procGetDpiForWindow.Call(hwnd)
-		if dpi > 0 {
-			return uint32(dpi)
-		}
+func getDPIScale() (float64, float64) {
+	hdc, _, _ := w32.GetDC.Call(0)
+	if hdc == 0 {
+		return 1.0, 1.0
 	}
-	return baseDPI
-}
+	defer w32.ReleaseDC.Call(0, hdc)
 
-func DPIScale(hwnd uintptr) (scaleX, scaleY float64) {
-	dpi := float64(getDPIForWindow(hwnd))
-	s := dpi / baseDPI
-	return s, s
-}
+	dpiX, _, _ := w32.GetDeviceCaps.Call(hdc, LOGPIXELSX)
+	dpiY, _, _ := w32.GetDeviceCaps.Call(hdc, LOGPIXELSY)
 
-func ScaleForDPI(hwnd uintptr, logicalPx int) int {
-	dpi := getDPIForWindow(hwnd)
-	return int(float64(logicalPx) * float64(dpi) / baseDPI)
+	if dpiX == 0 || dpiY == 0 {
+		return 1.0, 1.0
+	}
+
+	return float64(dpiX) / 96.0, float64(dpiY) / 96.0
 }
 
 type WebviewOptions struct {
-	Title  string
-	Width  int
-	Height int
-	Host   string
+	Title     string
+	Width     int
+	Height    int
+	Host      string
+	DebugPort bool
+	Icon      uintptr
 
 	Center         bool
 	StartMaximized bool
@@ -84,8 +62,6 @@ type WebviewOptions struct {
 	DisableRoute    bool
 	AutoFocus       bool
 
-	DPIAware bool
-
 	Chromium *edge.Chromium
 	Debug    bool
 }
@@ -98,6 +74,24 @@ type route struct {
 
 type window struct {
 	hwnd uintptr
+}
+
+func (w *webview) SetIcon(id uintptr) {
+	w32.GetModuleHandleW.Call()
+
+	hInstance, _, _ := w32.GetModuleHandleW.Call(0)
+
+	hIcon, _, _ := w32.User32LoadImageW.Call(
+		hInstance,
+		id,
+		1,
+		0,
+		0,
+		0x40,
+	)
+
+	w32.User32SendMessageW.Call(w.hwnd, 0x0080, 0, hIcon)
+	w32.User32SendMessageW.Call(w.hwnd, 0x0080, 1, hIcon)
 }
 
 func (w *window) Maximize() {
@@ -134,10 +128,16 @@ type webview struct {
 
 	Window *window
 
+	debugPort int
+
 	routes map[string]route
 	host   string
 	route  bool
 	center bool
+
+	dpix float64
+
+	dpiy float64
 
 	browser   *edge.Chromium
 	autofocus bool
@@ -244,11 +244,19 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 	browserOK := atomic.LoadInt32(&w.browserReady) == 1
 	isDestroyed := atomic.LoadInt32(&w.destroyed) == 1
 
+	// 如果浏览器没准备好或已被销毁，所有消息直接走默认处理，避免无效开销
+	if !browserOK || isDestroyed {
+		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
+		return r
+	}
+
 	switch msg {
 	case w32.WMMove, w32.WMMoving:
-		if browserOK && !isDestroyed {
+		if msg == w32.WMMove {
 			_ = w.browser.NotifyParentWindowPositionChanged()
 		}
+		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
+		return r
 
 	case w32.WMNCLButtonDown:
 		w32.User32SetFocus.Call(w.hwnd)
@@ -256,17 +264,25 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		return r
 
 	case w32.WMSize:
-		if browserOK && !isDestroyed {
+		if wp != 1 {
 			w.browser.Resize()
 		}
+		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
+		return r
 
 	case w32.WMActivate:
-		if wp != 0 && w.autofocus && browserOK && !isDestroyed {
+		isMinimized := (wp >> 16) != 0
+		isInactive := (wp & 0xffff) == 0
+
+		if !isInactive && !isMinimized && w.autofocus {
 			safeFocus(w.browser)
 		}
+		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
+		return r
 
 	case w32.WMClose:
 		w32.User32DestroyWindow.Call(hwnd)
+		return 0
 
 	case w32.WMDestroy:
 		atomic.StoreInt32(&w.destroyed, 1)
@@ -276,22 +292,27 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 
 	case w32.WMGetMinMaxInfo:
 		lpmmi := (*w32.MinMaxInfo)(unsafe.Pointer(lp))
+		hasChanged := false
 		if w.maxsz.X > 0 && w.maxsz.Y > 0 {
 			lpmmi.PtMaxSize = w.maxsz
 			lpmmi.PtMaxTrackSize = w.maxsz
+			hasChanged = true
 		}
 		if w.minsz.X > 0 && w.minsz.Y > 0 {
 			lpmmi.PtMinTrackSize = w.minsz
+			hasChanged = true
 		}
+		if hasChanged {
+			return 0 // 如果修改了 MinMaxInfo，返回 0 告诉系统我们处理了该消息
+		}
+		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
+		return r
 
 	default:
 		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
 		return r
 	}
-
-	return 0
 }
-
 func (w *webview) createWindow(opts WebviewOptions) bool {
 	var hinstance windows.Handle
 	if err := windows.GetModuleHandleEx(0, nil, &hinstance); err != nil {
@@ -333,11 +354,8 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 		windowHeight = 600
 	}
 
-	if opts.DPIAware {
-		scaleX, scaleY := DPIScale(0)
-		windowWidth = int(float64(windowWidth) * scaleX)
-		windowHeight = int(float64(windowHeight) * scaleY)
-	}
+	windowWidth = int(float64(windowWidth) * w.dpix)
+	windowHeight = int(float64(windowHeight) * w.dpiy)
 
 	var exStyle uint32
 	var style uint32 = w32.WS_OVERLAPPEDWINDOW
@@ -425,11 +443,8 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 }
 
 func (w *webview) SetSize(width, height int) {
-	if w.dpi {
-		scaleX, scaleY := DPIScale(w.hwnd)
-		width = int(float64(width) * scaleX)
-		height = int(float64(height) * scaleY)
-	}
+	width = int(float64(width) * w.dpix)
+	height = int(float64(height) * w.dpiy)
 
 	screenW, _, _ := w32.User32GetSystemMetrics.Call(0)
 	screenH, _, _ := w32.User32GetSystemMetrics.Call(1)
@@ -514,6 +529,26 @@ type rpcMessage struct {
 	Params []json.RawMessage `json:"params"`
 }
 
+func (w *webview) Emit(eventName string, data interface{}) {
+	var buff, _ = json.Marshal(&data)
+	var js = fmt.Sprintf(`window.dispatchEvent(new CustomEvent('%s', { detail: %s }));`,
+		eventName, string(buff))
+
+	w.Eval(js)
+}
+
+func (w *webview) GetURL() string {
+	var url, err = w.browser.GetCurrentURL()
+	if err != nil {
+		return ""
+	}
+	return url
+}
+
+func (w *webview) GetDebugPort() int {
+	return w.debugPort
+}
+
 func NewWithOptions(opts WebviewOptions) *webview {
 	if opts.Chromium == nil {
 		log.Fatal("Chromium instance must be provided via WebviewOptions.Chromium")
@@ -526,15 +561,32 @@ func NewWithOptions(opts WebviewOptions) *webview {
 
 	_ = windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED)
 
+	var dpiX, dpiY = getDPIScale()
+
 	w := &webview{
 		bindings:  make(map[string]interface{}),
 		routes:    make(map[string]route),
 		host:      opts.Host,
-		dpi:       opts.DPIAware,
+		dpix:      dpiX,
+		dpiy:      dpiY,
 		center:    opts.Center,
 		route:     !opts.DisableRoute,
 		autofocus: opts.AutoFocus,
 		browser:   opts.Chromium,
+	}
+
+	if opts.DebugPort {
+		var safePort int
+		for {
+			p := FastRandPort9000()
+			if !IsPortUsed(p) {
+				safePort = p
+				break
+			}
+		}
+		args := fmt.Sprintf("--remote-debugging-port=%d --remote-debugging-address=127.0.0.1", safePort)
+		os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args)
+		w.debugPort = safePort
 	}
 
 	w.mainthread, _, _ = w32.Kernel32GetCurrentThreadID.Call()
@@ -542,6 +594,8 @@ func NewWithOptions(opts WebviewOptions) *webview {
 	if !w.createWindow(opts) {
 		return nil
 	}
+
+	w.SetIcon(opts.Icon)
 
 	w.browser.MessageCallback = func(message string, sender *edge.ICoreWebView2, args *edge.ICoreWebView2WebMessageReceivedEventArgs) {
 		w.msgcb(message)
@@ -576,6 +630,8 @@ func NewWithOptions(opts WebviewOptions) *webview {
 
 	atomic.StoreInt32(&w.browserReady, 1)
 
+	w.browser.Resize()
+
 	if w.route {
 		w.browser.AddWebResourceRequestedFilter(w.host+"*", edge.COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW)
 		var env = w.browser.Environment()
@@ -586,7 +642,6 @@ func NewWithOptions(opts WebviewOptions) *webview {
 			}
 			if route, found := w.routes[uri]; found {
 				var res, err = env.CreateWebResourceResponse([]byte(route.content), 200, "OK", route.headers)
-				fmt.Println("err = ", err)
 				if err != nil {
 					return
 				}
@@ -594,8 +649,6 @@ func NewWithOptions(opts WebviewOptions) *webview {
 			}
 		}
 	}
-
-	w.browser.Resize()
 
 	return w
 }

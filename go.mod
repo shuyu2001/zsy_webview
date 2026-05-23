@@ -1,11 +1,12 @@
-module github.com/wailsapp/go-webview2
+module github.com/shuyu2001/go-webview2
 
-go 1.20
+go 1.25.0
 
 require (
-	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e
-	github.com/stretchr/testify v1.9.0
-	golang.org/x/sys v0.27.0
+	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1
+	github.com/stretchr/testify v1.11.1
+	github.com/wailsapp/go-webview2 v1.0.23
+	golang.org/x/sys v0.45.0
 )
 
 require (

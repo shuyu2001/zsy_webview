@@ -17,8 +17,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/wailsapp/go-webview2/internal/w32"
-	"github.com/wailsapp/go-webview2/webviewloader"
+	"github.com/shuyu2001/go-webview2/internal/w32"
+	"github.com/shuyu2001/go-webview2/webviewloader"
 	"golang.org/x/sys/windows"
 )
 
@@ -29,13 +29,10 @@ func globalErrorHandler(err error) {
 		return
 	}
 
-	fmt.Printf("[WebView2 Error] %v\n", err)
-
 	stackBuf := make([]uintptr, 64)
 	stackSize := runtime.Callers(2, stackBuf)
 	frames := runtime.CallersFrames(stackBuf[:stackSize])
 
-	fmt.Println("\nStack trace:")
 	stackIndex := 1
 	for {
 		frame, more := frames.Next()
@@ -601,9 +598,40 @@ func (e *Chromium) ProcessFailed(sender *ICoreWebView2, args *ICoreWebView2Proce
 	return 0
 }
 
+func (e *Chromium) GetCurrentHTML() {
+	script := "document.documentElement.outerHTML"
+	scriptPtr, _ := windows.UTF16PtrFromString(script)
+
+	_, _, _ = e.webview.vtbl.ExecuteScript.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+		uintptr(unsafe.Pointer(scriptPtr)),
+		0,
+	)
+}
+
+func (e *Chromium) GetCurrentURL() (string, error) {
+	var uriPtr uintptr
+
+	hr, _, _ := e.webview.vtbl.GetSource.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+		uintptr(unsafe.Pointer(&uriPtr)),
+	)
+
+	if int32(hr) < 0 {
+		return "", windows.Errno(hr)
+	}
+
+	if uriPtr == 0 {
+		return "", nil
+	}
+
+	sourceStr := windows.UTF16PtrToString((*uint16)(unsafe.Pointer(uriPtr)))
+
+	windows.CoTaskMemFree(unsafe.Pointer(uriPtr))
+
+	return sourceStr, nil
+}
 func (e *Chromium) NotifyParentWindowPositionChanged() error {
-	//It looks like the wndproc function is called before the controller initialization is complete.
-	//Because of this the controller is nil
 	if e.controller == nil {
 		return nil
 	}

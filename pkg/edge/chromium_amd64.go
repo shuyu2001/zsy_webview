@@ -3,9 +3,7 @@
 
 package edge
 
-import (
-	"github.com/wailsapp/go-webview2/internal/w32"
-)
+import "github.com/shuyu2001/go-webview2/internal/w32"
 
 func (e *Chromium) SetSize(bounds w32.Rect) {
 	if e.controller == nil {

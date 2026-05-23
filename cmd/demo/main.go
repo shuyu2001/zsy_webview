@@ -4,7 +4,8 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/wailsapp/go-webview2/pkg/edge"
+	zsy_webview "github.com/shuyu2001/go-webview2"
+	"github.com/shuyu2001/go-webview2/pkg/edge"
 )
 
 type Action struct {
@@ -16,22 +17,21 @@ type Action struct {
 var html string
 
 func main() {
-	initDPIAwareness()
-
 	chromium := edge.NewChromium()
 
 	var host = "http://shuyuz.app/"
 
-	w := NewWithOptions(WebviewOptions{
+	w := zsy_webview.NewWithOptions(zsy_webview.WebviewOptions{
 		Title:           "My App",
 		Width:           1280,
 		Host:            host,
+		Icon:            1,
 		Height:          800,
+		DebugPort:       true,
 		Debug:           true,
 		Center:          true,
 		DisableRoute:    false,
 		DisableMaximize: false,
-		DPIAware:        true,
 		StartMaximized:  false,
 		Chromium:        chromium,
 		AutoFocus:       true,
@@ -45,7 +45,7 @@ func main() {
 
 	w.AddHtmlContentRoute(host, html)
 
-	w.Navigate(host)
+	w.Navigate("https://www.shuyuz.com")
 
 	w.NavigationCompletedCallback(func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
 		w.Bind("hello", func() {
@@ -56,6 +56,8 @@ func main() {
 			fmt.Println("message = ", data)
 		})
 	})
+
+	chromium.AddWebResourceRequestedFilter("https://www.shuyuz.com/ping*", edge.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH)
 
 	w.Run()
 }

@@ -4,6 +4,7 @@
 package edge
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -46,6 +47,22 @@ func globalErrorHandler(err error) {
 	}
 }
 
+func WrapJSONCallback[T any](fn func(T)) func(any) {
+	return func(data any) {
+		// 先转回 JSON 字符串
+		b, err := json.Marshal(data)
+		if err != nil {
+			return
+		}
+		// 再反序列化为目标类型
+		var result T
+		if err := json.Unmarshal(b, &result); err != nil {
+			return
+		}
+		fn(result)
+	}
+}
+
 type Chromium struct {
 	hwnd    uintptr
 	padding struct {
@@ -83,6 +100,7 @@ type Chromium struct {
 
 	// Callbacks
 	MessageCallback                          func(message string, sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs)
+	JSONMessageCallback                      func(any)
 	MessageWithAdditionalObjectsCallback     func(message string, sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs)
 	WebResourceRequestedCallback             func(request *ICoreWebView2WebResourceRequest, args *ICoreWebView2WebResourceRequestedEventArgs)
 	NavigationCompletedCallback              func(sender *ICoreWebView2, args *ICoreWebView2NavigationCompletedEventArgs)
@@ -398,33 +416,56 @@ func (e *Chromium) ContainsFullScreenElementChanged(sender *ICoreWebView2, args 
 	return 0
 }
 
+// ICoreWebView2WebMessageReceivedEventArgs
 func (e *Chromium) MessageReceived(sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs) uintptr {
-	message, err := args.TryGetWebMessageAsString()
-	if err != nil {
-		e.errorCallback(err)
-	}
-
-	if HasCapability(e.webview2RuntimeVersion, GetAdditionalObjects) {
-		obj, err := args.GetAdditionalObjects()
-		if err != nil {
-			e.errorCallback(err)
+	if e.MessageCallback != nil {
+		var message *uint16
+		_, _, _ = args.vtbl.TryGetWebMessageAsString.Call(
+			uintptr(unsafe.Pointer(args)),
+			uintptr(unsafe.Pointer(&message)),
+		)
+		if message != nil {
+			e.MessageCallback(w32.Utf16PtrToString(message), sender, args)
+			windows.CoTaskMemFree(unsafe.Pointer(message))
+			return 0
 		}
+	}
 
-		if obj != nil && e.MessageWithAdditionalObjectsCallback != nil {
-			defer obj.Release()
-			e.MessageWithAdditionalObjectsCallback(message, sender, args)
-		} else if e.MessageCallback != nil {
-			e.MessageCallback(message, sender, args)
+	if e.JSONMessageCallback != nil {
+		var jsonMessage *uint16
+		_, _, _ = args.vtbl.GetWebMessageAsJSON.Call(
+			uintptr(unsafe.Pointer(args)),
+			uintptr(unsafe.Pointer(&jsonMessage)),
+		)
+		if jsonMessage != nil {
+			jsonStr := w32.Utf16PtrToString(jsonMessage)
+			windows.CoTaskMemFree(unsafe.Pointer(jsonMessage))
+
+			var goObject any
+			if err := json.Unmarshal([]byte(jsonStr), &goObject); err != nil {
+				goObject = jsonStr
+			}
+			e.JSONMessageCallback(goObject)
+			return 0
 		}
-	} else if e.MessageCallback != nil {
-		e.MessageCallback(message, sender, args)
 	}
 
-	err = sender.PostWebMessageAsString(message)
-	if err != nil && !errors.Is(err, windows.ERROR_IO_PENDING) {
-		e.errorCallback(err)
-	}
 	return 0
+}
+func (e *Chromium) PostWebMessageAsJson(jsonStr string) error {
+	_, _, err := e.webview.vtbl.PostWebMessageAsJSON.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(jsonStr))),
+	)
+	return err
+}
+
+func (e *Chromium) PostWebMessageAsString(jsonStr string) error {
+	_, _, err := e.webview.vtbl.PostWebMessageAsString.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(jsonStr))),
+	)
+	return err
 }
 
 func (e *Chromium) SetPermission(kind CoreWebView2PermissionKind, state CoreWebView2PermissionState) {

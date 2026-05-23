@@ -41,11 +41,18 @@ var (
 	User32SetWindowLongPtrW  = user32.NewProc("SetWindowLongPtrW")
 	User32AdjustWindowRect   = user32.NewProc("AdjustWindowRect")
 	User32SetWindowPos       = user32.NewProc("SetWindowPos")
+	User32GetAncestor        = user32.NewProc("GetAncestor")
+	User32IsDialogMessage    = user32.NewProc("IsDialogMessage")
+	User32PostMessageW       = user32.NewProc("PostMessageW")
 )
 
 const (
 	SystemMetricsCxIcon = 11
 	SystemMetricsCyIcon = 12
+)
+
+const (
+	GARoot = 2
 )
 
 const (
@@ -56,14 +63,53 @@ const (
 )
 
 const (
-	SWShow = 5
-)
-
-const (
 	SWPNoZOrder     = 0x0004
 	SWPNoActivate   = 0x0010
 	SWPNoMove       = 0x0002
 	SWPFrameChanged = 0x0020
+	SWPNoSize       = 0x0001
+)
+
+const (
+	SW_HIDE          = 0
+	SW_SHOWNORMAL    = 1
+	SW_SHOWMINIMIZED = 2
+	SW_MAXIMIZE      = 3
+	SW_SHOW          = 5
+	SW_MINIMIZE      = 6
+	SW_RESTORE       = 9
+	// --- GetSystemMetrics 系统指标参数 (System Metrics) ---
+	SM_CXSCREEN = 0 // 屏幕宽度
+	SM_CYSCREEN = 1 // 屏幕高度
+
+	// --- LoadImageW 标志位 (LoadImage Flags) ---
+	LR_SHARED = 0x00008000 // 自动管理内存，防止句柄泄露
+
+	// --- 基础窗口样式 (Window Styles - WS) ---
+	WS_OVERLAPPEDWINDOW = 0x00CF0000 // 复合样式（带标题栏、边框、系统菜单、最大最小化按钮）
+	WS_POPUP            = 0x80000000 // 弹出式窗口（无边框）
+	WS_CLIPCHILDREN     = 0x02000000 // 排除子窗口重绘区域（防闪烁）
+	WS_CLIPSIBLINGS     = 0x04000000 // 裁剪兄弟窗口
+	WS_THICKFRAME       = 0x00040000 // 允许拉伸大小的边框 (也叫 WS_SIZEBOX)
+	WS_MAXIMIZEBOX      = 0x00010000 // 最大化按钮
+	WS_MINIMIZEBOX      = 0x00020000 // 最小化按钮
+
+	// --- 扩展窗口样式 (Extended Window Styles - WS_EX) ---
+	WS_EX_TOOLWINDOW = 0x00000080 // 工具箱窗口（不在任务栏显示）
+	WS_EX_APPWINDOW  = 0x00040000 // 顶级应用窗口（强制在任务栏显示）
+
+	// --- SetWindowPos 坐标与置顶标志 (SetWindowPos Flags) ---
+	HWND_TOPMOST   = ^uintptr(0) // 也就是 -1，表示将窗口置顶
+	SWP_NOSIZE     = 0x0001      // 忽略宽度和高度参数（保持当前大小）
+	SWP_NOMOVE     = 0x0002      // 忽略 X 和 Y 参数（保持当前位置）
+	SWP_NOACTIVATE = 0x0010      // 不激活窗口（保持当前焦点不变）
+
+	// --- Class Styles & Backgrounds 窗口类属性 ---
+	CS_VREDRAW   = 0x0001 // 垂直拉伸时重绘整个窗口
+	CS_HREDRAW   = 0x0002 // 水平拉伸时重绘整个窗口
+	COLOR_WINDOW = 5      // 标准窗口背景色
+
+	WM_CLOSE = 0x0010
 )
 
 const (
@@ -72,6 +118,7 @@ const (
 	WMSize          = 0x0005
 	WMClose         = 0x0010
 	WMQuit          = 0x0012
+	WMActivate      = 0x0006
 	WMGetMinMaxInfo = 0x0024
 	WMNCLButtonDown = 0x00A1
 	WMMoving        = 0x0216

@@ -446,54 +446,47 @@ func (e *ICoreWebView2Environment) CreateCoreWebView2Controller(parentWindow uin
 	return nil
 }
 
-// CreateWebResourceResponse creates a new ICoreWebView2WebResourceResponse, it must be released after finishing using it.
-func (e *ICoreWebView2Environment) CreateWebResourceResponse(content []byte, statusCode int, reasonPhrase string, headers string) (*ICoreWebView2WebResourceResponse, error) {
-
+func (e *ICoreWebView2Environment) CreateWebResourceResponse(
+	content []byte,
+	statusCode int,
+	reasonPhrase string,
+	headers string,
+) (*ICoreWebView2WebResourceResponse, error) {
 	var stream uintptr
-
 	if len(content) > 0 {
-		// Create stream for response
-		stream, err := w32.SHCreateMemStream(content)
+		var err error
+		stream, err = w32.SHCreateMemStream(content)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("SHCreateMemStream: %w", err)
 		}
-
-		// Release the IStream after we are finished, CreateWebResourceResponse Call will increase the reference
-		// count on IStream and therefore it won't be freed until the reference count of the response is 0.
 		defer (*IStream)(unsafe.Pointer(stream)).Release()
 	}
 
-	// Convert string 'uri' to *uint16
-	_reason, err := windows.UTF16PtrFromString(reasonPhrase)
+	reasonPtr, err := windows.UTF16PtrFromString(reasonPhrase)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("UTF16PtrFromString(reason): %w", err)
 	}
-	// Convert string 'uri' to *uint16
-	_headers, err := windows.UTF16PtrFromString(headers)
+	headersPtr, err := windows.UTF16PtrFromString(headers)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("UTF16PtrFromString(headers): %w", err)
 	}
+
 	var response *ICoreWebView2WebResourceResponse
 	hr, _, _ := e.vtbl.CreateWebResourceResponse.Call(
 		uintptr(unsafe.Pointer(e)),
 		stream,
 		uintptr(statusCode),
-		uintptr(unsafe.Pointer(_reason)),
-		uintptr(unsafe.Pointer(_headers)),
+		uintptr(unsafe.Pointer(reasonPtr)),
+		uintptr(unsafe.Pointer(headersPtr)),
 		uintptr(unsafe.Pointer(&response)),
 	)
-	if windows.Handle(hr) != windows.S_OK {
-		return nil, syscall.Errno(hr)
-	}
 
-	if response == nil {
-		return nil, fmt.Errorf("unknown error")
+	if int32(hr) < 0 {
+		return nil, fmt.Errorf("CreateWebResourceResponse HRESULT=0x%08X: %w", hr, syscall.Errno(hr))
 	}
 
 	return response, nil
 }
-
-// ICoreWebView2PermissionRequestedEventArgs
 
 type iCoreWebView2PermissionRequestedEventArgsVtbl struct {
 	_IUnknownVtbl

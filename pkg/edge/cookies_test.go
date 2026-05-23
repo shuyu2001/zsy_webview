@@ -59,7 +59,7 @@ func TestCookieManager(t *testing.T) {
 	}
 	defer w32.DestroyWindow(hwnd)
 
-	_, _, _ = w32.User32ShowWindow.Call(hwnd, w32.SWShow)
+	_, _, _ = w32.User32ShowWindow.Call(hwnd, w32.SW_SHOW)
 	_, _, _ = w32.User32UpdateWindow.Call(hwnd)
 	_, _, _ = w32.User32SetFocus.Call(hwnd)
 

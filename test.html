@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+
+<body>
+    <h1 id="h1">Hello World</h1>
+</body>
+<script>
+    window.addEventListener("myEvent", (event) => {
+        console.log(event.detail)
+    })
+    window.chrome.webview.addEventListener('message', (event) => {
+        console.log(event)
+        const rawData = event.data;
+        console.log("收到来自 Go 的原生消息:", rawData.num);
+
+        document.querySelector("#h1").textContent = rawData.num;
+    });
+    setInterval(() => {
+        // const msg = { action: "play_audio", url: "https://shuyuz.app/" };
+        chrome.webview.postMessage({ action: "play_audio", url: "https://shuyuz.app/" });
+        chrome.webview.postMessage("hello");
+        window.hello()
+    }, 1000);
+</script>
+
+</html>

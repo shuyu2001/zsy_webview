@@ -47,6 +47,8 @@ func main() {
 
 	w.Navigate("https://www.shuyuz.com")
 
+	w.AddHtmlContentRoute()
+
 	w.NavigationCompletedCallback(func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
 		w.Bind("hello", func() {
 			fmt.Println("8888")

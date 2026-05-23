@@ -76,7 +76,7 @@ type window struct {
 	hwnd uintptr
 }
 
-func (w *webview) SetIcon(id uintptr) {
+func (w *webview) setIcon(id uintptr) {
 	w32.GetModuleHandleW.Call()
 
 	hInstance, _, _ := w32.GetModuleHandleW.Call(0)
@@ -120,6 +120,10 @@ func (w *window) CloseWindow(hwnd uintptr) {
 
 func newWindow(hwnd uintptr) *window {
 	return &window{hwnd: hwnd}
+}
+
+type Webview struct {
+	wv *webview
 }
 
 type webview struct {
@@ -179,43 +183,43 @@ func deleteWindowContext(wnd uintptr) {
 	delete(windowContext, wnd)
 }
 
-func (w *webview) Dispatch(fn func()) {
-	w.mu.Lock()
-	w.dispatchq = append(w.dispatchq, fn)
-	w.mu.Unlock()
-	w32.User32PostMessageW.Call(w.hwnd, w32.WMApp, 0, 0)
+func (w *Webview) Dispatch(fn func()) {
+	w.wv.mu.Lock()
+	w.wv.dispatchq = append(w.wv.dispatchq, fn)
+	w.wv.mu.Unlock()
+	w32.User32PostMessageW.Call(w.wv.hwnd, w32.WMApp, 0, 0)
 }
 
-func (w *webview) Navigate(url string) {
-	w.browser.Navigate(url)
+func (w *Webview) Navigate(url string) {
+	w.wv.browser.Navigate(url)
 }
 
-func (w *webview) AddRoute(path string, content string, headers string) {
-	w.routes[path] = route{path: path, content: content, headers: headers}
+func (w *Webview) AddRoute(path string, content string, headers string) {
+	w.wv.routes[path] = route{path: path, content: content, headers: headers}
 }
 
-func (w *webview) AddHtmlContentRoute(path string, content string) {
+func (w *Webview) AddHtmlContentRoute(path string, content string) {
 	w.AddRoute(path, content, "Content-Type: text/html; charset=utf-8")
 }
 
-func (w *webview) Destroy() {
-	w32.User32PostMessageW.Call(w.hwnd, w32.WMClose, 0, 0)
+func (w *Webview) Destroy() {
+	w32.User32PostMessageW.Call(w.wv.hwnd, w32.WMClose, 0, 0)
 }
 
-func (w *webview) SetHtml(html string) {
-	w.browser.NavigateToString(html)
+func (w *Webview) SetHtml(html string) {
+	w.wv.browser.NavigateToString(html)
 }
 
-func (w *webview) Init(js string) {
-	w.browser.Init(js)
+func (w *Webview) Init(js string) {
+	w.wv.browser.Init(js)
 }
 
-func (w *webview) Eval(js string) {
-	w.browser.Eval(js)
+func (w *Webview) Eval(js string) {
+	w.wv.browser.Eval(js)
 }
 
-func (w *webview) NavigationCompletedCallback(fn func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs)) {
-	w.browser.NavigationCompletedCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
+func (w *Webview) NavigationCompletedCallback(fn func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs)) {
+	w.wv.browser.NavigationCompletedCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
 		fn(sender, args)
 	}
 }
@@ -442,9 +446,9 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 	return true
 }
 
-func (w *webview) SetSize(width, height int) {
-	width = int(float64(width) * w.dpix)
-	height = int(float64(height) * w.dpiy)
+func (w *Webview) SetSize(width, height int) {
+	width = int(float64(width) * w.wv.dpix)
+	height = int(float64(height) * w.wv.dpiy)
 
 	screenW, _, _ := w32.User32GetSystemMetrics.Call(0)
 	screenH, _, _ := w32.User32GetSystemMetrics.Call(1)
@@ -459,21 +463,21 @@ func (w *webview) SetSize(width, height int) {
 	}
 
 	flags := w32.SWPNoZOrder
-	if !w.center {
+	if !w.wv.center {
 		flags |= w32.SWPNoMove
 	}
 
 	w32.User32SetWindowPos.Call(
-		w.hwnd, 0,
+		w.wv.hwnd, 0,
 		uintptr(x), uintptr(y),
 		uintptr(width), uintptr(height),
 		uintptr(flags),
 	)
 
-	w.browser.Resize()
+	w.wv.browser.Resize()
 }
 
-func (w *webview) Run() {
+func (w *Webview) Run() {
 	var msg w32.Msg
 
 	localQ := make([]func(), 0, 16)
@@ -491,11 +495,11 @@ func (w *webview) Run() {
 		}
 
 		if msg.Message == w32.WMApp {
-			w.mu.Lock()
+			w.wv.mu.Lock()
 			localQ = localQ[:0]
-			localQ = append(localQ, w.dispatchq...)
-			w.dispatchq = w.dispatchq[:0]
-			w.mu.Unlock()
+			localQ = append(localQ, w.wv.dispatchq...)
+			w.wv.dispatchq = w.wv.dispatchq[:0]
+			w.wv.mu.Unlock()
 
 			for _, fn := range localQ {
 				fn()
@@ -514,13 +518,13 @@ func (w *webview) Run() {
 	}
 }
 
-func (w *webview) PostWebMessageAsJSON(data interface{}) error {
+func (w *Webview) PostWebMessageAsJSON(data interface{}) error {
 	var buff, _ = json.Marshal(&data)
-	return w.browser.PostWebMessageAsJson(string(buff))
+	return w.wv.browser.PostWebMessageAsJson(string(buff))
 }
 
-func (w *webview) PostWebMessageAsString(str string) error {
-	return w.browser.PostWebMessageAsString(str)
+func (w *Webview) PostWebMessageAsString(str string) error {
+	return w.wv.browser.PostWebMessageAsString(str)
 }
 
 type rpcMessage struct {
@@ -529,7 +533,7 @@ type rpcMessage struct {
 	Params []json.RawMessage `json:"params"`
 }
 
-func (w *webview) Emit(eventName string, data interface{}) {
+func (w *Webview) Emit(eventName string, data interface{}) {
 	var buff, _ = json.Marshal(&data)
 	var js = fmt.Sprintf(`window.dispatchEvent(new CustomEvent('%s', { detail: %s }));`,
 		eventName, string(buff))
@@ -537,19 +541,19 @@ func (w *webview) Emit(eventName string, data interface{}) {
 	w.Eval(js)
 }
 
-func (w *webview) GetURL() string {
-	var url, err = w.browser.GetCurrentURL()
+func (w *Webview) GetURL() string {
+	var url, err = w.wv.browser.GetCurrentURL()
 	if err != nil {
 		return ""
 	}
 	return url
 }
 
-func (w *webview) GetDebugPort() int {
-	return w.debugPort
+func (w *Webview) GetDebugPort() int {
+	return w.wv.debugPort
 }
 
-func NewWithOptions(opts WebviewOptions) *webview {
+func NewWithOptions(opts WebviewOptions) *Webview {
 	if opts.Chromium == nil {
 		log.Fatal("Chromium instance must be provided via WebviewOptions.Chromium")
 		return nil
@@ -595,10 +599,12 @@ func NewWithOptions(opts WebviewOptions) *webview {
 		return nil
 	}
 
-	w.SetIcon(opts.Icon)
+	var wv = Webview{wv: w}
+
+	w.setIcon(opts.Icon)
 
 	w.browser.MessageCallback = func(message string, sender *edge.ICoreWebView2, args *edge.ICoreWebView2WebMessageReceivedEventArgs) {
-		w.msgcb(message)
+		wv.msgcb(message)
 	}
 
 	w.Window = newWindow(w.hwnd)
@@ -650,5 +656,5 @@ func NewWithOptions(opts WebviewOptions) *webview {
 		}
 	}
 
-	return w
+	return &wv
 }

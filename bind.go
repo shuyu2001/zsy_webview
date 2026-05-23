@@ -106,15 +106,15 @@ func (e *bindingEntry) call(params []json.RawMessage) (interface{}, error) {
 	}
 }
 
-func (w *webview) Bind(name string, f interface{}) error {
+func (w *Webview) Bind(name string, f interface{}) error {
 	entry, err := newBindingEntry(f)
 	if err != nil {
 		return err
 	}
 
-	w.mu.Lock()
-	w.bindings[name] = entry
-	w.mu.Unlock()
+	w.wv.mu.Lock()
+	w.wv.bindings[name] = entry
+	w.wv.mu.Unlock()
 
 	// JS 注入：与原实现完全兼容，无行为变化
 	w.Init("(function() { var name = " + jsString(name) + ";" + `
@@ -153,14 +153,14 @@ func (w *webview) callbinding(d rpcMessage) (interface{}, error) {
 	return e.call(d.Params)
 }
 
-func (w *webview) msgcb(msg string) {
+func (w *Webview) msgcb(msg string) {
 	d := rpcMessage{}
 	if err := json.Unmarshal([]byte(msg), &d); err != nil {
 		return
 	}
 
 	id := strconv.Itoa(d.ID)
-	res, err := w.callbinding(d)
+	res, err := w.wv.callbinding(d)
 
 	if err != nil {
 		errStr := jsString(err.Error())

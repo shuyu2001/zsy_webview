@@ -17,6 +17,7 @@ type Action struct {
 var html string
 
 func main() {
+
 	chromium := edge.NewChromium()
 
 	var host = "http://shuyuz.app/"

@@ -5,7 +5,6 @@ go 1.25.0
 require (
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1
 	github.com/stretchr/testify v1.11.1
-	github.com/wailsapp/go-webview2 v1.0.23
 	golang.org/x/sys v0.45.0
 )
 

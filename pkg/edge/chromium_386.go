@@ -4,9 +4,10 @@
 package edge
 
 import (
-	"github.com/wailsapp/go-webview2/internal/w32"
-	"golang.org/x/sys/windows"
 	"unsafe"
+
+	"github.com/shuyu2001/zsy_webview/internal/w32"
+	"golang.org/x/sys/windows"
 )
 
 func (e *Chromium) SetSize(bounds w32.Rect) {

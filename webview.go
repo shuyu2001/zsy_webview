@@ -117,26 +117,26 @@ func (w *window) ShowWindow(hwnd uintptr) {
 }
 
 func (w *window) CloseWindow(hwnd uintptr) {
-	w32.User32ShowWindow.Call(hwnd, uintptr(w32.WMClose), 0, 0)
+	w32.User32ShowWindow.Call(hwnd, uintptr(w32.WM_CLOSE), 0, 0)
 }
 
 func (w *window) DisableMaximizeButton() {
 	style := w32.GetWindowLong(w.hwnd, w32.GWLStyle)
-	style &^= w32.WSMaximizeBox
+	style &^= w32.WS_MAXIMIZEBOX
 	w32.SetWindowLong(w.hwnd, w32.GWLStyle, style)
 	w32.User32SetWindowPos.Call(
 		w.hwnd, 0, 0, 0, 0, 0,
-		w32.SWPNoMove|w32.SWPNoSize|w32.SWPNoZOrder|w32.SWPFrameChanged,
+		w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOZOrder|w32.SWP_FRAMECHANGED,
 	)
 }
 
 func (w *window) EnableMaximizeButton() {
 	style := w32.GetWindowLong(w.hwnd, w32.GWLStyle)
-	style |= w32.WSMaximizeBox
+	style |= w32.WS_MAXIMIZEBOX
 	w32.SetWindowLong(w.hwnd, w32.GWLStyle, style)
 	w32.User32SetWindowPos.Call(
 		w.hwnd, 0, 0, 0, 0, 0,
-		w32.SWPNoMove|w32.SWPNoSize|w32.SWPNoZOrder|w32.SWPFrameChanged,
+		w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOZOrder|w32.SWP_FRAMECHANGED,
 	)
 }
 
@@ -219,7 +219,7 @@ func (w *Webview) AddHtmlContentRoute(path string, content string) {
 }
 
 func (w *Webview) Destroy() {
-	w32.User32PostMessageW.Call(w.wv.hwnd, w32.WMClose, 0, 0)
+	w32.User32PostMessageW.Call(w.wv.hwnd, w32.WM_CLOSE, 0, 0)
 }
 
 func (w *Webview) SetHtml(html string) {
@@ -299,7 +299,7 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 			safeFocus(w.browser)
 		}
 
-	case w32.WMClose:
+	case w32.WM_CLOSE:
 		w32.User32DestroyWindow.Call(hwnd)
 		return 0
 
@@ -440,7 +440,7 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 		w32.User32SetWindowPos.Call(
 			w.hwnd, w32.HWND_TOPMOST,
 			0, 0, 0, 0,
-			w32.SWPNoMove|w32.SWPNoSize|w32.SWPNoActivate,
+			w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOACTIVATE,
 		)
 	}
 
@@ -475,9 +475,9 @@ func (w *Webview) SetSize(width, height int) {
 		y = 0
 	}
 
-	flags := w32.SWPNoZOrder
+	flags := w32.SWP_NOZOrder
 	if !w.wv.center {
-		flags |= w32.SWPNoMove
+		flags |= w32.SWP_NOMOVE
 	}
 
 	w32.User32SetWindowPos.Call(

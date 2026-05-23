@@ -7,8 +7,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/wailsapp/go-webview2/webviewloader"
-
+	"github.com/shuyu2001/zsy_webview/webviewloader"
 	"golang.org/x/sys/windows"
 )
 

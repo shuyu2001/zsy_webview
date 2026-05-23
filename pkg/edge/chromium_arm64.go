@@ -6,7 +6,6 @@ package edge
 import (
 	"unsafe"
 
-	"github.com/wailsapp/go-webview2/internal/w32"
 	"golang.org/x/sys/windows"
 )
 

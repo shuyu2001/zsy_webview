@@ -60,8 +60,6 @@ var (
 	User32SendMessageW            = user32.NewProc("SendMessageW")
 	SetWindowPlacement            = user32.NewProc("SetWindowPlacement")
 	GetWindowPlacement            = user32.NewProc("GetWindowPlacement")
-	User32GetWindowLongW          = user32.NewProc("GetWindowLongW")
-	User32SetWindowLongW          = user32.NewProc("SetWindowLongW")
 	SetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
 )
 
@@ -221,7 +219,7 @@ const (
 
 const (
 	// --- GetWindowLong / SetWindowLong 索引 ---
-	GWLStyle = ^-16
+	GWLStyle = -16
 )
 
 // ==========================================

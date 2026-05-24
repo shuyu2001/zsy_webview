@@ -64,7 +64,7 @@ func main() {
 		fmt.Println(uri)
 	}
 
-	w.SetSizeWithHint(420, 500, zsy_webview.HintMinimize)
+	w.SetSize(420, 500)
 	w.Window.DisableMaximizeButton()
 	w.SetHtml(buf.String())
 	w.Eval(fmt.Sprintf(`setStatus(%q,"#ef4444")`, "请重新登录"))

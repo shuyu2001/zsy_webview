@@ -47,10 +47,6 @@ func main() {
 
 	defer w.Destroy()
 
-	w.AddHtmlContentRoute(host, html)
-
-	w.Navigate(host)
-
 	var buf bytes.Buffer
 
 	var data = map[string]string{"Title": "认证授权", "SubTitle": "这是测试认证"}
@@ -68,12 +64,10 @@ func main() {
 		fmt.Println(uri)
 	}
 
-	w.Dispatch(func() {
-		w.SetSize(420, 500)
-		w.Window.DisableMaximizeButton()
-		w.SetHtml(buf.String())
-		w.Eval(fmt.Sprintf(`setStatus(%q,"#ef4444")`, "请重新登录"))
-	})
+	w.SetSize(420, 500)
+	w.Window.DisableMaximizeButton()
+	w.SetHtml(buf.String())
+	w.Eval(fmt.Sprintf(`setStatus(%q,"#ef4444")`, "请重新登录"))
 
 	w.Run()
 }

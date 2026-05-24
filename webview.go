@@ -100,24 +100,24 @@ func (w *window) Maximize() {
 	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.SW_MAXIMIZE))
 }
 
-func (w *window) MinimizeWindow(hwnd uintptr) {
-	w32.User32ShowWindow.Call(hwnd, uintptr(w32.WS_MINIMIZEBOX))
+func (w *window) MinimizeWindow() {
+	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.WS_MINIMIZEBOX))
 }
 
-func (w *window) RestoreWindow(hwnd uintptr) {
-	w32.User32ShowWindow.Call(hwnd, uintptr(w32.SW_RESTORE))
+func (w *window) RestoreWindow() {
+	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.SW_RESTORE))
 }
 
-func (w *window) HideWindow(hwnd uintptr) {
-	w32.User32ShowWindow.Call(hwnd, uintptr(w32.SW_HIDE))
+func (w *window) HideWindow() {
+	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.SW_HIDE))
 }
 
-func (w *window) ShowWindow(hwnd uintptr) {
-	w32.User32ShowWindow.Call(hwnd, uintptr(w32.SW_SHOW))
+func (w *window) ShowWindow() {
+	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.SW_SHOW))
 }
 
-func (w *window) CloseWindow(hwnd uintptr) {
-	w32.User32ShowWindow.Call(hwnd, uintptr(w32.WM_CLOSE), 0, 0)
+func (w *window) CloseWindow() {
+	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.WM_CLOSE), 0, 0)
 }
 
 func (w *window) DisableMaximizeButton() {
@@ -205,12 +205,15 @@ func (w *Webview) Dispatch(fn func()) {
 	w32.User32PostMessageW.Call(w.wv.hwnd, w32.WMApp, 0, 0)
 }
 
+func (w *Webview) Resize() {
+	w.wv.browser.Resize()
+}
+
 func (w *Webview) Navigate(url string) {
 	w.wv.browser.Navigate(url)
 }
 
 func (w *Webview) AddRoute(path string, content string, headers string) {
-	// 提前转为 []byte 缓存，在响应路由请求时实现真正零分配
 	w.wv.routes[path] = route{path: path, content: []byte(content), headers: headers}
 }
 

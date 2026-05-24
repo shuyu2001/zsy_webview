@@ -1,31 +1,204 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <title>授权管理中心</title>
+
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f3f4f6;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+
+        .card {
+            width: 420px;
+            height: 460px;
+            background: #fff;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .title {
+            text-align: center;
+            font-size: 22px;
+            font-weight: 700;
+            margin-top: 70px;
+            color: #111827;
+        }
+
+        .sub {
+            text-align: center;
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 10px;
+        }
+
+        /* 输入框霓虹外框 */
+        .input-box {
+            position: relative;
+            width: 320px;
+            height: 58px;
+            margin: 60px auto 10px;
+        }
+
+        .glow {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 1px solid #4f46e5;
+            border-radius: 10px;
+            box-shadow: 0 0 12px rgba(79, 70, 229, 0.3);
+        }
+
+        input {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: none;
+            outline: none;
+            text-align: center;
+            font-size: 14px;
+            background: transparent;
+        }
+
+        .label {
+            position: absolute;
+            top: -10px;
+            left: 12px;
+            font-size: 12px;
+            color: #4f46e5;
+            background: #fff;
+            padding: 0 6px;
+        }
+
+        .status {
+            text-align: center;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 10px;
+        }
+
+        .bar {
+            width: 320px;
+            height: 3px;
+            background: #e5e7eb;
+            margin: 15px auto;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .bar>div {
+            height: 100%;
+            width: 0%;
+            background: #4f46e5;
+            transition: width 0.3s;
+        }
+
+        button {
+            width: 320px;
+            height: 50px;
+            display: block;
+            margin: 30px auto 0;
+            border: none;
+            border-radius: 10px;
+            background: #4f46e5;
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            background: #4338ca;
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            font-size: 12px;
+            color: #4f46e5;
+            cursor: pointer;
+        }
+    </style>
 </head>
 
 <body>
-    <h1 id="h1">Hello World</h1>
-</body>
-<script>
-    window.addEventListener("myEvent", (event) => {
-        console.log(event.detail)
-    })
-    window.chrome.webview.addEventListener('message', (event) => {
-        console.log(event)
-        const rawData = event.data;
-        console.log("收到来自 Go 的原生消息:", rawData.num);
 
-        document.querySelector("#h1").textContent = rawData.num;
-    });
-    setInterval(() => {
-        // const msg = { action: "play_audio", url: "https://shuyuz.app/" };
-        chrome.webview.postMessage({ action: "play_audio", url: "https://shuyuz.app/" });
-        chrome.webview.postMessage("hello");
-        window.hello()
-    }, 1000);
-</script>
+    <div class="card">
+        <div class="title">{{.Title}}</div>
+        <div class="sub">{{.SubTitle}}</div>
+
+        <div class="input-box">
+            <div class="glow"></div>
+            <div class="label">激活密钥</div>
+            <input id="code" placeholder="请输入卡密" />
+        </div>
+
+        <div class="status" id="status">准备就绪</div>
+
+        <div class="bar">
+            <div id="bar"></div>
+        </div>
+
+        <button onclick="verify()">立即验证并登录</button>
+
+        <div class="footer" onclick="window.open('https://www.shuyuz.com')">
+            www.shuyuz.com
+        </div>
+    </div>
+
+    <script>
+        function setProgress(v) {
+            document.getElementById("bar").style.width = v + "%";
+        }
+
+        function setStatus(text, color = "#9ca3af") {
+            const el = document.getElementById("status");
+            el.innerText = text;
+            el.style.color = color;
+        }
+
+        function verify() {
+            const code = document.getElementById("code").value.trim();
+
+            if (!code) {
+                setStatus("请输入卡密", "#ef4444");
+                return;
+            }
+
+            setStatus("验证中...");
+            setProgress(30);
+
+            setTimeout(() => {
+                setProgress(70);
+
+                setTimeout(async () => {
+                    const msg = await window.login(code)
+                    if (msg.code==200) {
+                        setProgress(100);
+                        setStatus("验证成功 ✔", "#22c55e");
+                    } else {
+                        setProgress(100);
+                        setStatus(msg.message, "#ef4444");
+                    }
+                    setTimeout(() => setProgress(0), 800);
+                }, 600);
+
+            }, 500);
+        }
+    </script>
+
+</body>
 
 </html>

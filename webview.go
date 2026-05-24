@@ -234,12 +234,6 @@ func (w *Webview) Eval(js string) {
 	w.wv.browser.Eval(js)
 }
 
-func (w *Webview) NavigationCompletedCallback(fn func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs)) {
-	w.wv.browser.NavigationCompletedCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
-		fn(sender, args)
-	}
-}
-
 func jsString(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
@@ -380,20 +374,14 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 	if opts.Frameless {
 		style = w32.WS_POPUP | w32.WS_CLIPCHILDREN | w32.WS_CLIPSIBLINGS
 	} else {
-		if opts.DisableResize {
+		if opts.DisableResize || opts.DisableMaximize {
 			style &^= w32.WS_THICKFRAME
 			style &^= w32.WS_MAXIMIZEBOX
 		} else {
 			style |= w32.WS_THICKFRAME
-		}
-
-		if opts.DisableMaximize {
-			style &^= w32.WS_MAXIMIZEBOX
-		} else if !opts.DisableResize {
 			style |= w32.WS_MAXIMIZEBOX
 		}
 	}
-
 	if opts.HideInTaskbar {
 		exStyle |= 0x00000080
 	} else {
@@ -534,9 +522,6 @@ func (w *Webview) Run() {
 			continue
 		}
 
-		// 优化: 【决定流畅度的关键】
-		// IsDialogMessage 只应对键盘事件进行拦截转换，原本对于鼠标高频移动 (MouseMove)
-		// 或绘图 (Paint) 同样调用此 CGO，会大幅度削弱流畅度。这里增加键盘消息区间的判断。
 		if msg.Message >= wmKeyFirst && msg.Message <= wmKeyLast {
 			ancestor, _, _ := w32.User32GetAncestor.Call(uintptr(msg.Hwnd), w32.GARoot)
 			isDialog, _, _ := w32.User32IsDialogMessage.Call(ancestor, uintptr(unsafe.Pointer(&msg)))
@@ -591,6 +576,20 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 		return nil
 	}
 
+	if opts.DebugPort {
+		var safePort int
+		for {
+			p := FastRandPort9000() // 假设其它包下提供了这个方法
+			if !IsPortUsed(p) {
+				safePort = p
+				break
+			}
+		}
+		opts.Chromium.AdditionalBrowserArgs = append(opts.Chromium.AdditionalBrowserArgs, fmt.Sprintf("--remote-debugging-port=%d", safePort))
+		opts.Chromium.AdditionalBrowserArgs = append(opts.Chromium.AdditionalBrowserArgs, "--remote-debugging-address=127.0.0.1")
+
+	}
+
 	if opts.Host == "" {
 		opts.Host = "http://shuyuz.app/"
 	}
@@ -609,20 +608,6 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 		route:     !opts.DisableRoute,
 		autofocus: opts.AutoFocus,
 		browser:   opts.Chromium,
-	}
-
-	if opts.DebugPort {
-		var safePort int
-		for {
-			p := FastRandPort9000() // 假设其它包下提供了这个方法
-			if !IsPortUsed(p) {
-				safePort = p
-				break
-			}
-		}
-		args := fmt.Sprintf("--remote-debugging-port=%d --remote-debugging-address=127.0.0.1", safePort)
-		os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args)
-		w.debugPort = safePort
 	}
 
 	w.mainthread, _, _ = w32.Kernel32GetCurrentThreadID.Call()

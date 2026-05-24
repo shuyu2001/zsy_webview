@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
+	"log"
+	"text/template"
 
 	"github.com/shuyu2001/zsy_webview"
 	"github.com/shuyu2001/zsy_webview/pkg/edge"
@@ -32,7 +35,7 @@ func main() {
 		Debug:           true,
 		Center:          true,
 		DisableRoute:    false,
-		DisableMaximize: false,
+		DisableMaximize: true,
 		StartMaximized:  false,
 		Chromium:        chromium,
 		AutoFocus:       true,
@@ -48,17 +51,29 @@ func main() {
 
 	w.Navigate(host)
 
-	w.NavigationCompletedCallback(func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
-		w.Bind("hello", func() {
-			fmt.Println("8888")
-		})
+	var buf bytes.Buffer
 
-		chromium.JSONMessageCallback = edge.WrapJSONCallback(func(data Action) {
-			fmt.Println("message = ", data)
-		})
+	var data = map[string]string{"Title": "认证授权", "SubTitle": "这是测试认证"}
+	tmpl, _ := template.New("ui").Parse(html)
+
+	if err := tmpl.Execute(&buf, data); err != nil {
+		log.Fatal(err)
+	}
+
+	chromium.NavigationCompletedCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
+		var uri, _ = sender.GetSource()
+		if uri == "about:blank" || uri == "" {
+			return
+		}
+		fmt.Println(uri)
+	}
+
+	w.Dispatch(func() {
+		w.SetSize(420, 500)
+		w.Window.DisableMaximizeButton()
+		w.SetHtml(buf.String())
+		w.Eval(fmt.Sprintf(`setStatus(%q,"#ef4444")`, "请重新登录"))
 	})
-
-	chromium.AddWebResourceRequestedFilter("https://www.shuyuz.com/ping*", edge.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH)
 
 	w.Run()
 }

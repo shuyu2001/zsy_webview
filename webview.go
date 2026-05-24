@@ -450,6 +450,102 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 	return true
 }
 
+type WindowHint int
+
+const (
+	HintNormal     WindowHint = iota // 普通窗口（可调整）
+	HintMaximize                     // 最大化
+	HintMinimize                     // 最小化
+	HintFullscreen                   // 真全屏（无边框覆盖任务栏）
+	HintFixed                        // 固定大小（不可调整）
+)
+
+func (w *Webview) SetSizeWithHint(width, height int, hint WindowHint) {
+	hwnd := w.wv.hwnd
+
+	realW := int(float64(width) * w.wv.dpix)
+	realH := int(float64(height) * w.wv.dpiy)
+
+	screenW, _, _ := w32.User32GetSystemMetrics.Call(w32.SM_CXSCREEN)
+	screenH, _, _ := w32.User32GetSystemMetrics.Call(w32.SM_CYSCREEN)
+
+	x := (int(screenW) - realW) / 2
+	y := (int(screenH) - realH) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	var wp w32.WINDOWPLACEMENT
+	wp.Length = uint32(unsafe.Sizeof(wp))
+
+	w32.GetWindowPlacement.Call(
+		hwnd,
+		uintptr(unsafe.Pointer(&wp)),
+	)
+
+	wp.NormalPosition = w32.Rect{
+		Left:   int32(x),
+		Top:    int32(y),
+		Right:  int32(x + realW),
+		Bottom: int32(y + realH),
+	}
+
+	switch hint {
+
+	case HintNormal:
+		wp.ShowCmd = w32.SW_SHOWNORMAL
+		w32.SetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&wp)))
+
+	case HintMaximize:
+		wp.ShowCmd = w32.SW_MAXIMIZE
+		w32.SetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&wp)))
+
+	case HintMinimize:
+		wp.ShowCmd = w32.SW_SHOWMINIMIZED
+		w32.SetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&wp)))
+
+	case HintFixed:
+		style, _, _ := w32.User32GetWindowLongW.Call(hwnd, w32.GWLStyle)
+		style &^= w32.WS_THICKFRAME
+		style &^= w32.WS_MAXIMIZEBOX
+
+		w32.User32SetWindowLongW.Call(hwnd, w32.GWLStyle, style)
+
+		wp.ShowCmd = w32.SW_SHOWNORMAL
+		w32.SetWindowPlacement.Call(hwnd, uintptr(unsafe.Pointer(&wp)))
+
+		w32.User32SetWindowPos.Call(
+			hwnd, 0,
+			0, 0, 0, 0,
+			w32.SWP_NOMOVE|
+				w32.SWP_NOSIZE|
+				w32.SWP_NOZOrder|
+				w32.SWP_FRAMECHANGED,
+		)
+
+	case HintFullscreen:
+		style, _, _ := w32.User32GetWindowLongW.Call(hwnd, w32.GWLStyle)
+
+		style &^= w32.WS_OVERLAPPEDWINDOW
+
+		w32.User32SetWindowLongW.Call(hwnd, w32.GWLStyle, style)
+
+		w32.User32SetWindowPos.Call(
+			hwnd,
+			w32.HWND_TOPMOST,
+			0, 0,
+			screenW,
+			screenH,
+			w32.SWP_FRAMECHANGED,
+		)
+	}
+
+	w.wv.browser.Resize()
+}
+
 func (w *Webview) SetSize(width, height int) {
 	width = int(float64(width) * w.wv.dpix)
 	height = int(float64(height) * w.wv.dpiy)

@@ -58,6 +58,10 @@ var (
 	User32IsDialogMessage         = user32.NewProc("IsDialogMessage")
 	User32PostMessageW            = user32.NewProc("PostMessageW")
 	User32SendMessageW            = user32.NewProc("SendMessageW")
+	SetWindowPlacement            = user32.NewProc("SetWindowPlacement")
+	GetWindowPlacement            = user32.NewProc("GetWindowPlacement")
+	User32GetWindowLongW          = user32.NewProc("GetWindowLongW")
+	User32SetWindowLongW          = user32.NewProc("SetWindowLongW")
 	SetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
 )
 
@@ -74,6 +78,19 @@ type Rect struct {
 	Top    int32
 	Right  int32
 	Bottom int32
+}
+
+type POINT struct {
+	X, Y int32
+}
+
+type WINDOWPLACEMENT struct {
+	Length         uint32
+	Flags          uint32
+	ShowCmd        uint32
+	MinPosition    POINT
+	MaxPosition    POINT
+	NormalPosition Rect
 }
 
 type MinMaxInfo struct {
@@ -204,7 +221,7 @@ const (
 
 const (
 	// --- GetWindowLong / SetWindowLong 索引 ---
-	GWLStyle = -16
+	GWLStyle = ^-16
 )
 
 // ==========================================

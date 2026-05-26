@@ -60,6 +60,8 @@ var (
 	User32SendMessageW            = user32.NewProc("SendMessageW")
 	SetWindowPlacement            = user32.NewProc("SetWindowPlacement")
 	GetWindowPlacement            = user32.NewProc("GetWindowPlacement")
+	GetSystemMenu                 = user32.NewProc("GetSystemMenu")
+	EnableMenuItem                = user32.NewProc("EnableMenuItem")
 	SetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
 )
 
@@ -218,23 +220,13 @@ const (
 )
 
 const (
-	// --- GetWindowLong / SetWindowLong 索引 ---
-	GWLStyle = -16
+	GWLStyle = ^uintptr(15)
+
+	SC_CLOSE = 0xF060
+
+	MF_BYCOMMAND = 0x00000000
+	MF_GRAYED    = 0x00000001
 )
-
-// ==========================================
-// 导出函数 (Exported Functions)
-// ==========================================
-
-func GetWindowLong(hwnd uintptr, index int) uintptr {
-	ret, _, _ := User32GetWindowLongPtrW.Call(hwnd, uintptr(index))
-	return ret
-}
-
-func SetWindowLong(hwnd uintptr, index int, newLong uintptr) uintptr {
-	ret, _, _ := User32SetWindowLongPtrW.Call(hwnd, uintptr(index), newLong)
-	return ret
-}
 
 func Utf16PtrToString(p *uint16) string {
 	if p == nil {

@@ -1,10 +1,15 @@
 package zsy_webview
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
+	"mime"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -96,6 +101,37 @@ func (w *webview) setIcon(id uintptr) {
 	w32.User32SendMessageW.Call(w.hwnd, 0x0080, 1, hIcon)
 }
 
+func (w *window) SetResizable(resizable bool) {
+	style, _, _ := w32.User32GetWindowLongPtrW.Call(w.hwnd, uintptr(w32.GWLStyle))
+	if resizable {
+		style |= uintptr(w32.WS_THICKFRAME)
+	} else {
+		style &^= uintptr(w32.WS_THICKFRAME)
+	}
+	w32.User32SetWindowLongPtrW.Call(w.hwnd, uintptr(w32.GWLStyle), style)
+}
+
+func (w *window) SetMinimizable(minimizable bool) {
+	style, _, _ := w32.User32GetWindowLongPtrW.Call(w.hwnd, uintptr(w32.GWLStyle))
+	if minimizable {
+		style |= uintptr(w32.WS_MINIMIZEBOX)
+	} else {
+		style &^= uintptr(w32.WS_MINIMIZEBOX)
+	}
+	w32.User32SetWindowLongPtrW.Call(w.hwnd, uintptr(w32.GWLStyle), style)
+}
+
+func (w *window) SetClosable(closable bool) {
+	hMenu, _, _ := w32.GetSystemMenu.Call(w.hwnd, 0)
+	if hMenu != 0 {
+		var enable uintptr = w32.MF_BYCOMMAND
+		if !closable {
+			enable |= w32.MF_GRAYED
+		}
+		w32.EnableMenuItem.Call(hMenu, w32.SC_CLOSE, enable)
+	}
+}
+
 func (w *window) Maximize() {
 	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.SW_MAXIMIZE))
 }
@@ -121,9 +157,16 @@ func (w *window) CloseWindow() {
 }
 
 func (w *window) DisableMaximizeButton() {
-	style := w32.GetWindowLong(w.hwnd, w32.GWLStyle)
+	style, _, _ := w32.User32GetWindowLongPtrW.Call(
+		w.hwnd,
+		uintptr(w32.GWLStyle),
+	)
 	style &^= w32.WS_MAXIMIZEBOX
-	w32.SetWindowLong(w.hwnd, w32.GWLStyle, style)
+	w32.User32SetWindowLongPtrW.Call(
+		w.hwnd,
+		uintptr(w32.GWLStyle),
+		style,
+	)
 	w32.User32SetWindowPos.Call(
 		w.hwnd, 0, 0, 0, 0, 0,
 		w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOZOrder|w32.SWP_FRAMECHANGED,
@@ -131,9 +174,16 @@ func (w *window) DisableMaximizeButton() {
 }
 
 func (w *window) EnableMaximizeButton() {
-	style := w32.GetWindowLong(w.hwnd, w32.GWLStyle)
+	style, _, _ := w32.User32GetWindowLongPtrW.Call(
+		w.hwnd,
+		uintptr(w32.GWLStyle),
+	)
 	style |= w32.WS_MAXIMIZEBOX
-	w32.SetWindowLong(w.hwnd, w32.GWLStyle, style)
+	w32.User32SetWindowLongPtrW.Call(
+		w.hwnd,
+		uintptr(w32.GWLStyle),
+		style,
+	)
 	w32.User32SetWindowPos.Call(
 		w.hwnd, 0, 0, 0, 0, 0,
 		w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOZOrder|w32.SWP_FRAMECHANGED,
@@ -618,6 +668,44 @@ func (w *Webview) GetDebugPort() int {
 	return w.wv.debugPort
 }
 
+func (w *Webview) AddBrowerArgs(value string) {
+	w.wv.browser.AdditionalBrowserArgs = append(w.wv.browser.AdditionalBrowserArgs, value)
+}
+
+func (w *Webview) RegisterEmbedFS(rootFS embed.FS, rootPath string) {
+	fs.WalkDir(rootFS, rootPath, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+
+		content, err := fs.ReadFile(rootFS, p)
+		if err != nil {
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(rootPath, p)
+		routePath := relPath
+
+		if routePath == "/index.html" {
+			routePath = ""
+		}
+
+		mimeType := mime.TypeByExtension(filepath.Ext(p))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		headers := "Content-Type: " + mimeType
+
+		fullURL := w.wv.host + routePath
+
+		fullURL = strings.ReplaceAll(fullURL, "\\", "/")
+
+		w.AddRoute(fullURL, string(content), headers)
+
+		return nil
+	})
+}
+
 func NewWithOptions(opts WebviewOptions) *Webview {
 	if opts.Chromium == nil {
 		log.Fatal("Chromium instance must be provided via WebviewOptions.Chromium")
@@ -635,7 +723,6 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 		}
 		opts.Chromium.AdditionalBrowserArgs = append(opts.Chromium.AdditionalBrowserArgs, fmt.Sprintf("--remote-debugging-port=%d", safePort))
 		opts.Chromium.AdditionalBrowserArgs = append(opts.Chromium.AdditionalBrowserArgs, "--remote-debugging-address=127.0.0.1")
-
 	}
 
 	if opts.Host == "" {

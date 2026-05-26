@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bytes"
-	_ "embed"
-	"fmt"
-	"log"
-	"text/template"
+	"embed"
 
 	"github.com/shuyu2001/zsy_webview"
 	"github.com/shuyu2001/zsy_webview/pkg/edge"
@@ -16,8 +12,8 @@ type Action struct {
 	URL    string `json:"url"`
 }
 
-//go:embed test.html
-var html string
+//go:embed static/*
+var staticFiles embed.FS
 
 func main() {
 
@@ -35,7 +31,7 @@ func main() {
 		Debug:           true,
 		Center:          true,
 		DisableRoute:    false,
-		DisableMaximize: true,
+		DisableMaximize: false,
 		StartMaximized:  false,
 		Chromium:        chromium,
 		AutoFocus:       true,
@@ -45,29 +41,11 @@ func main() {
 		return
 	}
 
+	w.RegisterEmbedFS(staticFiles, "static")
+
 	defer w.Destroy()
 
-	var buf bytes.Buffer
-
-	var data = map[string]string{"Title": "认证授权", "SubTitle": "这是测试认证"}
-	tmpl, _ := template.New("ui").Parse(html)
-
-	if err := tmpl.Execute(&buf, data); err != nil {
-		log.Fatal(err)
-	}
-
-	chromium.NavigationCompletedCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
-		var uri, _ = sender.GetSource()
-		if uri == "about:blank" || uri == "" {
-			return
-		}
-		fmt.Println(uri)
-	}
-
-	w.SetSize(420, 500)
-	w.Window.DisableMaximizeButton()
-	w.SetHtml(buf.String())
-	w.Eval(fmt.Sprintf(`setStatus(%q,"#ef4444")`, "请重新登录"))
+	w.Navigate(host)
 
 	w.Run()
 }

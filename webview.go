@@ -152,7 +152,7 @@ func (w *window) ShowWindow() {
 }
 
 func (w *window) CloseWindow() {
-	w32.User32PostMessageW.Call(w.hwnd, uintptr(w32.WM_CLOSE), 0, 0)
+	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.WM_CLOSE), 0, 0)
 }
 
 func (w *window) DisableMaximizeButton() {

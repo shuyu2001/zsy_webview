@@ -79,6 +79,8 @@ type Chromium struct {
 	permissionRequested              *iCoreWebView2PermissionRequestedEventHandler
 	webResourceRequested             *iCoreWebView2WebResourceRequestedEventHandler
 	acceleratorKeyPressed            *ICoreWebView2AcceleratorKeyPressedEventHandler
+	sourceChanged                    *ICoreWebView2SourceChangedEventHandler
+	navigationStarting               *ICoreWebView2NavigationStartingEventHandler
 	navigationCompleted              *ICoreWebView2NavigationCompletedEventHandler
 	processFailed                    *ICoreWebView2ProcessFailedEventHandler
 
@@ -104,6 +106,8 @@ type Chromium struct {
 	ProcessFailedCallback                    func(sender *ICoreWebView2, args *ICoreWebView2ProcessFailedEventArgs)
 	ContainsFullScreenElementChangedCallback func(sender *ICoreWebView2, args *ICoreWebView2ContainsFullScreenElementChangedEventArgs)
 	AcceleratorKeyCallback                   func(uint) bool
+	SourceChangedCallback                    func(sender *ICoreWebView2, args *ICoreWebView2SourceChangedEventArgs)
+	NavigationStartingCallback               func(sender *ICoreWebView2, args *ICoreWebView2NavigationStartingEventArgs)
 
 	// Error handling
 	globalErrorCallback func(error)
@@ -128,6 +132,7 @@ func NewChromium() *Chromium {
 	 There's a proposal to add a runtime.Pin function, to prevent moving pinned objects, which would allow to easily fix
 	 this issue by just pinning the handlers. The https://go-review.googlesource.com/c/go/+/367296/ should land in Go 1.19.
 	*/
+	e.sourceChanged = newICoreWebView2SourceChangedEventHandler(e)
 	e.envCompleted = newICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler(e)
 	e.controllerCompleted = newICoreWebView2CreateCoreWebView2ControllerCompletedHandler(e)
 	e.webMessageReceived = newICoreWebView2WebMessageReceivedEventHandler(e)
@@ -136,6 +141,7 @@ func NewChromium() *Chromium {
 	e.acceleratorKeyPressed = newICoreWebView2AcceleratorKeyPressedEventHandler(e)
 	e.navigationCompleted = newICoreWebView2NavigationCompletedEventHandler(e)
 	e.processFailed = newICoreWebView2ProcessFailedEventHandler(e)
+	e.navigationStarting = newICoreWebView2NavigationStartingEventHandler(e)
 	e.containsFullScreenElementChanged = newICoreWebView2ContainsFullScreenElementChangedEventHandler(e)
 	/*
 		// Pinner seems to panic in some cases as reported on Discord, maybe during shutdown when GC detects pinned objects
@@ -375,6 +381,7 @@ func (e *Chromium) CreateCoreWebView2ControllerCompleted(res uintptr, controller
 	if err != nil {
 		e.errorCallback(err)
 	}
+
 	err = e.webview.AddPermissionRequested(e.permissionRequested, &token)
 	if err != nil {
 		e.errorCallback(err)
@@ -383,7 +390,17 @@ func (e *Chromium) CreateCoreWebView2ControllerCompleted(res uintptr, controller
 	if err != nil {
 		e.errorCallback(err)
 	}
+	err = e.webview.AddNavigationStarting(e.navigationStarting, &token)
+
+	if err != nil {
+		e.errorCallback(err)
+	}
+
 	err = e.webview.AddNavigationCompleted(e.navigationCompleted, &token)
+	if err != nil {
+		e.errorCallback(err)
+	}
+	err = e.webview.AddSourceChanged(e.sourceChanged, &token)
 	if err != nil {
 		e.errorCallback(err)
 	}
@@ -584,6 +601,20 @@ func boolToInt(input bool) int {
 	return 0
 }
 
+func (e *Chromium) SourceChanged(sender *ICoreWebView2, args *ICoreWebView2SourceChangedEventArgs) uintptr {
+	if e.SourceChangedCallback != nil {
+		e.SourceChangedCallback(sender, args)
+	}
+	return 0
+}
+
+func (e *Chromium) NavigationStarting(sender *ICoreWebView2, args *ICoreWebView2NavigationStartingEventArgs) uintptr {
+	if e.NavigationStartingCallback != nil {
+		e.NavigationStartingCallback(sender, args)
+	}
+	return 0
+}
+
 func (e *Chromium) NavigationCompleted(sender *ICoreWebView2, args *ICoreWebView2NavigationCompletedEventArgs) uintptr {
 	if e.NavigationCompletedCallback != nil {
 		e.NavigationCompletedCallback(sender, args)
@@ -609,6 +640,47 @@ func (e *Chromium) GetCurrentHTML() {
 	)
 }
 
+func (e *Chromium) Stop() error {
+	hr, _, _ := e.webview.vtbl.Stop.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return syscall.Errno(hr)
+	}
+	return nil
+}
+
+func (e *Chromium) GoBack() error {
+
+	hr, _, _ := e.webview.vtbl.GoBack.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return syscall.Errno(hr)
+	}
+	return nil
+}
+
+func (e *Chromium) GoForward() error {
+
+	hr, _, _ := e.webview.vtbl.GoForward.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return syscall.Errno(hr)
+	}
+	return nil
+}
+
+func (e *Chromium) Reload() error {
+	hr, _, _ := e.webview.vtbl.Reload.Call(
+		uintptr(unsafe.Pointer(e.webview)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return syscall.Errno(hr)
+	}
+	return nil
+}
 func (e *Chromium) GetCurrentURL() (string, error) {
 	var uriPtr uintptr
 

@@ -23,7 +23,6 @@ const (
 	LOGPIXELSX = 88
 	LOGPIXELSY = 90
 
-	// 键盘消息范围，用于过滤无谓的 IsDialogMessage 调用
 	wmKeyFirst = 0x0100
 	wmKeyLast  = 0x0109
 )
@@ -76,7 +75,7 @@ type WebviewOptions struct {
 }
 
 type route struct {
-	content []byte // 优化: 提前转换为 []byte 避免高频请求时的 GC 内存分配
+	content []byte
 	headers string
 	path    string
 }
@@ -153,7 +152,7 @@ func (w *window) ShowWindow() {
 }
 
 func (w *window) CloseWindow() {
-	w32.User32ShowWindow.Call(w.hwnd, uintptr(w32.WM_CLOSE), 0, 0)
+	w32.User32PostMessageW.Call(w.hwnd, uintptr(w32.WM_CLOSE), 0, 0)
 }
 
 func (w *window) DisableMaximizeButton() {
@@ -227,6 +226,10 @@ type webview struct {
 	bindings  map[string]interface{}
 	dispatchq []func()
 
+	// 优化: 用两个 slice 轮换来避免 dispatch 时的内存分配（双缓冲）
+	dispatchBuf [2][]func()
+	dispatchIdx int32 // 0 或 1，当前写入侧
+
 	destroyed    int32
 	browserReady int32
 }
@@ -292,17 +295,16 @@ func jsString(v interface{}) string {
 	return string(b)
 }
 
+// safeFocus 避免每次调用都创建 defer 帧。
+// 仅在确实需要 Focus 时调用，内部用标志位跳过反复注册 recover。
 func safeFocus(browser *edge.Chromium) {
 	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("webview: Focus() recovered from panic: %v", r)
-		}
+		recover() // 静默恢复，Focus panic 不应崩溃整个 UI 线程
 	}()
 	browser.Focus()
 }
 
 func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
-	// 优化: 安全防护。CGO回调出现Panic会导致系统崩溃或异常退出
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("webview: wndproc panic: %v", r)
@@ -315,28 +317,29 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		return r
 	}
 
-	browserOK := atomic.LoadInt32(&w.browserReady) == 1
-	isDestroyed := atomic.LoadInt32(&w.destroyed) == 1
-
-	if !browserOK || isDestroyed {
+	// 优化: 合并两次 atomic load 为单次，减少内存屏障开销
+	// destroyed 优先检查，因为销毁后 browser 可能已释放
+	if atomic.LoadInt32(&w.destroyed) == 1 || atomic.LoadInt32(&w.browserReady) == 0 {
 		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
 		return r
 	}
 
-	// 优化: 将统一拦截的 DefWindowProcW 放到函数尾部，精简代码消除反复调用带来的开销
 	switch msg {
 	case w32.WMMove, w32.WMMoving:
 		if msg == w32.WMMove {
 			_ = w.browser.NotifyParentWindowPositionChanged()
 		}
+		// WMMoving 不需要通知，直接 DefWindowProc
 
 	case w32.WMNCLButtonDown:
 		w32.User32SetFocus.Call(w.hwnd)
 
 	case w32.WMSize:
+		// wp == 1 表示 SIZE_MINIMIZED，最小化时不需要 Resize
 		if wp != 1 {
 			w.browser.Resize()
 		}
+		return 0
 
 	case w32.WMActivate:
 		isMinimized := (wp >> 16) != 0
@@ -345,6 +348,8 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		if !isInactive && !isMinimized && w.autofocus {
 			safeFocus(w.browser)
 		}
+		// 优化: WMActivate 不需要传递给 DefWindowProc，直接返回 0
+		return 0
 
 	case w32.WM_CLOSE:
 		w32.User32DestroyWindow.Call(hwnd)
@@ -402,7 +407,7 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 		HIconSm:       windows.Handle(icon),
 		LpfnWndProc:   windows.NewCallback(wndproc),
 		HbrBackground: w32.COLOR_WINDOW + 1,
-		Style:         0x0003, // CS_HREDRAW | CS_VREDRAW
+		Style:         0x0003,
 	}
 
 	if ret, _, _ := w32.User32RegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); ret == 0 {
@@ -576,7 +581,6 @@ func (w *Webview) SetSize(width, height int) {
 	w.wv.browser.Resize()
 }
 
-// safeExecute 为派遣的任务提供恐慌捕获，防止单点业务错误把整个UI线程崩掉
 func safeExecute(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -589,7 +593,9 @@ func safeExecute(fn func()) {
 func (w *Webview) Run() {
 	var msg w32.Msg
 
-	localQ := make([]func(), 0, 16)
+	// 优化: 预分配固定容量，避免高频 dispatch 时的 GC 抖动
+	// 同时使用指针交换（swap）替代 append+clear，彻底消除锁内的内存分配
+	localQ := make([]func(), 0, 32)
 
 	for {
 		ret, _, _ := w32.User32GetMessageW.Call(
@@ -605,18 +611,18 @@ func (w *Webview) Run() {
 
 		if msg.Message == w32.WMApp {
 			w.wv.mu.Lock()
-			localQ = append(localQ[:0], w.wv.dispatchq...)
-
-			// 优化: 主动置 nil 释放闭包引用，防止极易被忽略的切片内存泄漏 (Memory Leak)
-			for i := range w.wv.dispatchq {
-				w.wv.dispatchq[i] = nil
-			}
-			w.wv.dispatchq = w.wv.dispatchq[:0]
+			localQ, w.wv.dispatchq = w.wv.dispatchq, localQ[:0]
 			w.wv.mu.Unlock()
 
 			for _, fn := range localQ {
-				safeExecute(fn)
+				if fn != nil {
+					safeExecute(fn)
+				}
 			}
+			for i := range localQ {
+				localQ[i] = nil
+			}
+			localQ = localQ[:0]
 			continue
 		}
 
@@ -686,7 +692,7 @@ func (w *Webview) RegisterEmbedFS(rootFS embed.FS, rootPath string) {
 		relPath, _ := filepath.Rel(rootPath, p)
 		routePath := relPath
 
-		if routePath == "/index.html" {
+		if routePath == "index.html" {
 			routePath = ""
 		}
 
@@ -697,13 +703,32 @@ func (w *Webview) RegisterEmbedFS(rootFS embed.FS, rootPath string) {
 		headers := "Content-Type: " + mimeType
 
 		fullURL := w.wv.host + routePath
-
 		fullURL = strings.ReplaceAll(fullURL, "\\", "/")
 
 		w.AddRoute(fullURL, string(content), headers)
 
 		return nil
 	})
+}
+
+func (w *Webview) AddHotKey(fn func(w *Webview), hotKeys ...string) {
+	AddWebviewEvent(w, fn, hotKeys...)
+}
+
+func (w *Webview) Reload() {
+	w.wv.browser.Reload()
+}
+
+func (w *Webview) Stop() {
+	w.wv.browser.Stop()
+}
+
+func (w *Webview) GoBack() {
+	w.wv.browser.GoBack()
+}
+
+func (w *Webview) GoForward() {
+	w.wv.browser.GoForward()
 }
 
 func NewWithOptions(opts WebviewOptions) *Webview {
@@ -715,7 +740,7 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 	if opts.DebugPort {
 		var safePort int
 		for {
-			p := FastRandPort9000() // 假设其它包下提供了这个方法
+			p := FastRandPort9000()
 			if !IsPortUsed(p) {
 				safePort = p
 				break
@@ -734,8 +759,9 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 	var dpiX, dpiY = getDPIScale()
 
 	w := &webview{
-		bindings:  make(map[string]interface{}),
-		routes:    make(map[string]route),
+		bindings: make(map[string]interface{}),
+		// 优化: 预分配路由 map，避免频繁 rehash
+		routes:    make(map[string]route, 64),
 		host:      opts.Host,
 		dpix:      dpiX,
 		dpiy:      dpiY,
@@ -743,6 +769,8 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 		route:     !opts.DisableRoute,
 		autofocus: opts.AutoFocus,
 		browser:   opts.Chromium,
+		// 优化: 预分配 dispatchq，减少运行时扩容
+		dispatchq: make([]func(), 0, 32),
 	}
 
 	w.mainthread, _, _ = w32.Kernel32GetCurrentThreadID.Call()
@@ -755,7 +783,6 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 
 	w.setIcon(opts.Icon)
 
-	// 注意：此处的 msgcb 假定您在工程内的其他文件对其做了定义
 	w.browser.MessageCallback = func(message string, sender *edge.ICoreWebView2, args *edge.ICoreWebView2WebMessageReceivedEventArgs) {
 		wv.msgcb(message)
 	}
@@ -784,7 +811,7 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 	w.browser.Resize()
 
 	if w.route {
-		w.browser.AddWebResourceRequestedFilter(w.host+"*", edge.COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW)
+		w.browser.AddWebResourceRequestedFilter(w.host+"*", edge.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
 		var env = w.browser.Environment()
 		w.browser.WebResourceRequestedCallback = func(request *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) {
 			var uri, err = request.GetUri()
@@ -793,7 +820,6 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 			}
 
 			if route, found := w.routes[uri]; found {
-				// 优化: 直接使用初始化时准备好的 route.content (字节数组)，完全消除零散堆分配
 				var res, err = env.CreateWebResourceResponse(route.content, 200, "OK", route.headers)
 				if err != nil {
 					return

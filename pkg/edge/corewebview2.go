@@ -273,6 +273,32 @@ func (i *ICoreWebView2) AddWebResourceRequested(handler *iCoreWebView2WebResourc
 	return nil
 }
 
+func (i *ICoreWebView2) AddSourceChanged(eventHandler *ICoreWebView2SourceChangedEventHandler, token *_EventRegistrationToken) error {
+	var err error
+	_, _, err = i.vtbl.AddSourceChanged.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(eventHandler)),
+		uintptr(unsafe.Pointer(token)),
+	)
+	if err != windows.ERROR_SUCCESS {
+		return err
+	}
+	return nil
+}
+
+func (i *ICoreWebView2) AddNavigationStarting(eventHandler *ICoreWebView2NavigationStartingEventHandler, token *_EventRegistrationToken) error {
+	var err error
+	_, _, err = i.vtbl.AddNavigationStarting.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(eventHandler)),
+		uintptr(unsafe.Pointer(token)),
+	)
+	if err != windows.ERROR_SUCCESS {
+		return err
+	}
+	return nil
+}
+
 func (i *ICoreWebView2) AddScriptToExecuteOnDocumentCreated(javaScript string, handler *iCoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler) error {
 	u16js, err := windows.UTF16PtrFromString(javaScript)
 	if err != nil {

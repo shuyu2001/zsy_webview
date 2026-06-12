@@ -46,17 +46,18 @@ func main() {
 	chromium.NavigationStartingCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationStartingEventArgs) {
 		var uri, _ = args.GetUri()
 		fmt.Println("uri = ", uri)
-		if uri == host {
+		if uri == "https://www.shuyuz.com/" {
 			fmt.Println("进行拦截 ", uri)
 			w.Stop()
 		}
 	}
 
 	chromium.NavigationCompletedCallback = func(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
-		var isSuccess, _ = args.GetIsSuccess()
-		fmt.Println("isSuccess = ", isSuccess)
-		var uri, _ = sender.GetSource()
-		fmt.Println("加载完毕 ", uri)
+		var isSuccess, err = args.GetIsSuccess()
+		if isSuccess && err == nil {
+			var uri, _ = sender.GetSource()
+			fmt.Println("加载完毕 ", uri)
+		}
 	}
 
 	defer w.Destroy()

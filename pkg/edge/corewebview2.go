@@ -273,6 +273,19 @@ func (i *ICoreWebView2) AddWebResourceRequested(handler *iCoreWebView2WebResourc
 	return nil
 }
 
+func (i *ICoreWebView2) AddWebRouteResourceRequested(handler *iCoreWebView2WebResourceRequestedEventHandler, token *_EventRegistrationToken) error {
+	hr, _, _ := i.vtbl.AddWebResourceRequested.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(handler)),
+		uintptr(unsafe.Pointer(token)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
+
+	return nil
+}
+
 func (i *ICoreWebView2) AddSourceChanged(eventHandler *ICoreWebView2SourceChangedEventHandler, token *_EventRegistrationToken) error {
 	var err error
 	_, _, err = i.vtbl.AddSourceChanged.Call(

@@ -28,8 +28,11 @@ const (
 )
 
 func init() {
-	aware := -4
-	w32.SetProcessDpiAwarenessContext.Call(uintptr(aware))
+	// 安全检测：只在系统支持 SetProcessDpiAwarenessContext 时调用，防止在旧版本 Windows 上崩溃
+	if w32.SetProcessDpiAwarenessContext.Find() == nil {
+		aware := -4 // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+		w32.SetProcessDpiAwarenessContext.Call(uintptr(aware))
+	}
 }
 
 func getDPIScale() (float64, float64) {
@@ -217,18 +220,12 @@ type webview struct {
 	browser   *edge.Chromium
 	autofocus bool
 
-	dpi bool
-
 	maxsz w32.Point
 	minsz w32.Point
 
 	mu        sync.Mutex
 	bindings  map[string]interface{}
 	dispatchq []func()
-
-	// 优化: 用两个 slice 轮换来避免 dispatch 时的内存分配（双缓冲）
-	dispatchBuf [2][]func()
-	dispatchIdx int32 // 0 或 1，当前写入侧
 
 	destroyed    int32
 	browserReady int32
@@ -266,8 +263,12 @@ func (w *Webview) Navigate(url string) {
 	w.wv.browser.Navigate(url)
 }
 
+// AddRoute 新增写锁保护，避免多线程并发修改 w.routes Map 导致运行时 crash
 func (w *Webview) AddRoute(path string, content string, headers string) {
-	w.wv.routes[path] = route{path: path, content: []byte(content), headers: headers}
+	normalizedPath := strings.TrimSuffix(path, "/")
+	w.wv.mu.Lock()
+	w.wv.routes[normalizedPath] = route{path: path, content: []byte(content), headers: headers}
+	w.wv.mu.Unlock()
 }
 
 func (w *Webview) AddHtmlContentRoute(path string, content string) {
@@ -295,8 +296,6 @@ func jsString(v interface{}) string {
 	return string(b)
 }
 
-// safeFocus 避免每次调用都创建 defer 帧。
-// 仅在确实需要 Focus 时调用，内部用标志位跳过反复注册 recover。
 func safeFocus(browser *edge.Chromium) {
 	defer func() {
 		recover() // 静默恢复，Focus panic 不应崩溃整个 UI 线程
@@ -317,8 +316,6 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		return r
 	}
 
-	// 优化: 合并两次 atomic load 为单次，减少内存屏障开销
-	// destroyed 优先检查，因为销毁后 browser 可能已释放
 	if atomic.LoadInt32(&w.destroyed) == 1 || atomic.LoadInt32(&w.browserReady) == 0 {
 		r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
 		return r
@@ -329,13 +326,11 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		if msg == w32.WMMove {
 			_ = w.browser.NotifyParentWindowPositionChanged()
 		}
-		// WMMoving 不需要通知，直接 DefWindowProc
 
 	case w32.WMNCLButtonDown:
 		w32.User32SetFocus.Call(w.hwnd)
 
 	case w32.WMSize:
-		// wp == 1 表示 SIZE_MINIMIZED，最小化时不需要 Resize
 		if wp != 1 {
 			w.browser.Resize()
 		}
@@ -348,7 +343,6 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		if !isInactive && !isMinimized && w.autofocus {
 			safeFocus(w.browser)
 		}
-		// 优化: WMActivate 不需要传递给 DefWindowProc，直接返回 0
 		return 0
 
 	case w32.WM_CLOSE:
@@ -593,8 +587,6 @@ func safeExecute(fn func()) {
 func (w *Webview) Run() {
 	var msg w32.Msg
 
-	// 优化: 预分配固定容量，避免高频 dispatch 时的 GC 抖动
-	// 同时使用指针交换（swap）替代 append+clear，彻底消除锁内的内存分配
 	localQ := make([]func(), 0, 32)
 
 	for {
@@ -696,15 +688,25 @@ func (w *Webview) RegisterEmbedFS(rootFS embed.FS, rootPath string) {
 			routePath = ""
 		}
 
-		mimeType := mime.TypeByExtension(filepath.Ext(p))
+		ext := strings.ToLower(filepath.Ext(p))
+		mimeType := mime.TypeByExtension(ext)
+
 		if mimeType == "" {
 			mimeType = "application/octet-stream"
 		}
+
 		headers := "Content-Type: " + mimeType
 
-		fullURL := w.wv.host + routePath
-		fullURL = strings.ReplaceAll(fullURL, "\\", "/")
+		// 归一化路径中的反斜杠
+		routePath = strings.ReplaceAll(routePath, "\\", "/")
 
+		// 如果是主页，额外注册一个不含 index.html 后缀的 Host 作为备用基础地址
+		if routePath == "" {
+			w.AddRoute(strings.TrimSuffix(w.wv.host, "/"), string(content), headers)
+			w.AddRoute(w.wv.host+"index.html", string(content), headers)
+		}
+
+		fullURL := w.wv.host + routePath
 		w.AddRoute(fullURL, string(content), headers)
 
 		return nil
@@ -752,6 +754,8 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 
 	if opts.Host == "" {
 		opts.Host = "http://shuyuz.app/"
+	} else if !strings.HasSuffix(opts.Host, "/") {
+		opts.Host += "/"
 	}
 
 	_ = windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED)
@@ -759,8 +763,7 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 	var dpiX, dpiY = getDPIScale()
 
 	w := &webview{
-		bindings: make(map[string]interface{}),
-		// 优化: 预分配路由 map，避免频繁 rehash
+		bindings:  make(map[string]interface{}),
 		routes:    make(map[string]route, 64),
 		host:      opts.Host,
 		dpix:      dpiX,
@@ -769,7 +772,6 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 		route:     !opts.DisableRoute,
 		autofocus: opts.AutoFocus,
 		browser:   opts.Chromium,
-		// 优化: 预分配 dispatchq，减少运行时扩容
 		dispatchq: make([]func(), 0, 32),
 	}
 
@@ -780,6 +782,7 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 	}
 
 	var wv = Webview{wv: w, Window: newWindow(w.hwnd)}
+	w.Window = wv.Window // 双向绑定结构体字段，确保安全引用
 
 	w.setIcon(opts.Icon)
 
@@ -819,7 +822,38 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 				return
 			}
 
-			if route, found := w.routes[uri]; found {
+			lookupURI := uri
+			if idx := strings.IndexAny(lookupURI, "?#"); idx != -1 {
+				lookupURI = lookupURI[:idx]
+			}
+
+			lookupURI = strings.TrimSuffix(lookupURI, "/")
+
+			// 加锁读保护
+			w.mu.Lock()
+			route, found := w.routes[lookupURI]
+			w.mu.Unlock()
+
+			if !found {
+				hostBase := strings.TrimSuffix(w.host, "/")
+				if strings.HasPrefix(lookupURI, hostBase) {
+					lastSlash := strings.LastIndex(lookupURI, "/")
+					hasExt := false
+					if lastSlash != -1 {
+						hasExt = strings.Contains(lookupURI[lastSlash:], ".")
+					} else {
+						hasExt = strings.Contains(lookupURI, ".")
+					}
+
+					if !hasExt {
+						w.mu.Lock()
+						route, found = w.routes[hostBase]
+						w.mu.Unlock()
+					}
+				}
+			}
+
+			if found {
 				var res, err = env.CreateWebResourceResponse(route.content, 200, "OK", route.headers)
 				if err != nil {
 					return

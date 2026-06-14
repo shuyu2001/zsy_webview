@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package zsy_webview
 
 import (
@@ -229,6 +232,9 @@ type webview struct {
 
 	destroyed    int32
 	browserReady int32
+
+	// 统一存储：外部注册的资源请求拦截回调函数
+	resourceCallbacks []func(request *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) bool
 }
 
 var windowContext sync.Map
@@ -733,6 +739,68 @@ func (w *Webview) GoForward() {
 	w.wv.browser.GoForward()
 }
 
+// AddWebResourceRequestedFilter 允许外部向 WebView2 注册额外的拦截过滤规则
+func (w *Webview) AddWebResourceRequestedFilter(uri string, resourceContext edge.COREWEBVIEW2_WEB_RESOURCE_CONTEXT) {
+	w.wv.browser.AddWebResourceRequestedFilter(uri, resourceContext)
+}
+
+// OnWebResourceRequested 注册外部拦截回调。
+// 回调函数返回 true 代表该请求已被完全拦截处理（终止向后传递）；
+// 如果返回 false 代表放行（继续向下传递给底层的后续逻辑处理，如静态资源路由）。
+func (w *Webview) OnWebResourceRequested(cb func(request *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) bool) {
+	w.wv.mu.Lock()
+	defer w.wv.mu.Unlock()
+	w.wv.resourceCallbacks = append(w.wv.resourceCallbacks, cb)
+}
+
+// 物理隔离的内置静态路由拦截逻辑方法
+func (w *webview) handleInternalRoute(request *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) {
+	var uri, err = request.GetUri()
+	if err != nil {
+		return
+	}
+
+	lookupURI := uri
+	if idx := strings.IndexAny(lookupURI, "?#"); idx != -1 {
+		lookupURI = lookupURI[:idx]
+	}
+
+	lookupURI = strings.TrimSuffix(lookupURI, "/")
+
+	// 加锁读保护
+	w.mu.Lock()
+	route, found := w.routes[lookupURI]
+	w.mu.Unlock()
+
+	if !found {
+		hostBase := strings.TrimSuffix(w.host, "/")
+		if strings.HasPrefix(lookupURI, hostBase) {
+			lastSlash := strings.LastIndex(lookupURI, "/")
+			hasExt := false
+			if lastSlash != -1 {
+				hasExt = strings.Contains(lookupURI[lastSlash:], ".")
+			} else {
+				hasExt = strings.Contains(lookupURI, ".")
+			}
+
+			if !hasExt {
+				w.mu.Lock()
+				route, found = w.routes[hostBase]
+				w.mu.Unlock()
+			}
+		}
+	}
+
+	if found {
+		var env = w.browser.Environment()
+		var res, err = env.CreateWebResourceResponse(route.content, 200, "OK", route.headers)
+		if err != nil {
+			return
+		}
+		args.PutResponse(res)
+	}
+}
+
 func NewWithOptions(opts WebviewOptions) *Webview {
 	if opts.Chromium == nil {
 		log.Fatal("Chromium instance must be provided via WebviewOptions.Chromium")
@@ -813,54 +881,29 @@ func NewWithOptions(opts WebviewOptions) *Webview {
 
 	w.browser.Resize()
 
-	if w.route {
-		w.browser.AddWebResourceRequestedFilter(w.host+"*", edge.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
-		var env = w.browser.Environment()
-		w.browser.WebResourceRequestedCallback = func(request *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) {
-			var uri, err = request.GetUri()
-			if err != nil {
+	w.browser.WebResourceRequestedCallback = func(request *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) {
+		// 加入防崩的 Panic 恢复机制
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("webview: WebResourceRequested callback panic: %v", r)
+			}
+		}()
+
+		// 1. 依次轮询执行外部注册的拦截回调
+		for _, cb := range w.resourceCallbacks {
+			if cb != nil && cb(request, args) {
 				return
 			}
-
-			lookupURI := uri
-			if idx := strings.IndexAny(lookupURI, "?#"); idx != -1 {
-				lookupURI = lookupURI[:idx]
-			}
-
-			lookupURI = strings.TrimSuffix(lookupURI, "/")
-
-			// 加锁读保护
-			w.mu.Lock()
-			route, found := w.routes[lookupURI]
-			w.mu.Unlock()
-
-			if !found {
-				hostBase := strings.TrimSuffix(w.host, "/")
-				if strings.HasPrefix(lookupURI, hostBase) {
-					lastSlash := strings.LastIndex(lookupURI, "/")
-					hasExt := false
-					if lastSlash != -1 {
-						hasExt = strings.Contains(lookupURI[lastSlash:], ".")
-					} else {
-						hasExt = strings.Contains(lookupURI, ".")
-					}
-
-					if !hasExt {
-						w.mu.Lock()
-						route, found = w.routes[hostBase]
-						w.mu.Unlock()
-					}
-				}
-			}
-
-			if found {
-				var res, err = env.CreateWebResourceResponse(route.content, 200, "OK", route.headers)
-				if err != nil {
-					return
-				}
-				args.PutResponse(res)
-			}
 		}
+
+		if w.route {
+			w.handleInternalRoute(request, args)
+		}
+	}
+
+	// 注册本地静态文件的主机路由匹配规则
+	if w.route {
+		w.browser.AddWebResourceRequestedFilter(w.host+"*", edge.COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)
 	}
 
 	return &wv

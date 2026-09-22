@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -729,6 +730,36 @@ func (w *window) SetClosable(closable bool) {
 		}
 		w32.EnableMenuItem.Call(hMenu, w32.SC_CLOSE, enable)
 	}
+}
+
+func (w *window) OpenInFolder(filePath string) error {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return fmt.Errorf("获取绝对路径失败: %w", err)
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return fmt.Errorf("文件不存在: %s", absPath)
+	}
+
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", fmt.Sprintf("/select,%s", absPath))
+
+	case "darwin":
+		cmd = exec.Command("open", "-R", absPath)
+
+	case "linux":
+		dir := filepath.Dir(absPath)
+		cmd = exec.Command("xdg-open", dir)
+
+	default:
+		return fmt.Errorf("暂不支持的操作系统: %s", runtime.GOOS)
+	}
+
+	return cmd.Start()
 }
 
 // Maximize 最大化窗口

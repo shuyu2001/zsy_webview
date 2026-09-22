@@ -168,6 +168,13 @@ func (e *Chromium) ShuttingDown() {
 	e.shuttingDown = true
 }
 
+func NewChromiumWithEnvironment(env *ICoreWebView2Environment) *Chromium {
+	c := NewChromium()
+	env.vtbl.AddRef.Call(uintptr(unsafe.Pointer(env)))
+	c.environment = env
+	return c
+}
+
 func (e *Chromium) errorCallback(err error) {
 	e.globalErrorCallback(err)
 	os.Exit(1)
@@ -180,10 +187,37 @@ func (e *Chromium) SetErrorCallback(callback func(error)) {
 }
 
 func (e *Chromium) Embed(hwnd uintptr) bool {
-
-	var err error
-
 	e.hwnd = hwnd
+
+	// ✅ 如果 environment 已由外部注入（NewChromiumWithEnvironment），跳过创建流程
+	if e.environment != nil {
+		err := e.environment.CreateCoreWebView2Controller(e.hwnd, e.controllerCompleted)
+		if err != nil {
+			e.errorCallback(fmt.Errorf("CreateCoreWebView2Controller failed: %w", err))
+			return false
+		}
+
+		var msg w32.Msg
+		for {
+			if atomic.LoadUintptr(&e.inited) != 0 {
+				break
+			}
+			r, _, _ := w32.User32GetMessageW.Call(
+				uintptr(unsafe.Pointer(&msg)), 0, 0, 0,
+			)
+			if r == 0 {
+				break
+			}
+			w32.User32TranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
+			w32.User32DispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
+		}
+
+		e.Init("window.external={invoke:s=>window.chrome.webview.postMessage(s)}")
+		return true
+	}
+
+	// 原有流程：从零创建 Environment
+	var err error
 
 	dataPath := e.DataPath
 	if dataPath == "" {
@@ -599,6 +633,17 @@ func boolToInt(input bool) int {
 		return 1
 	}
 	return 0
+}
+
+func (e *Chromium) SetTransparent() error {
+	controller2 := e.controller.GetICoreWebView2Controller2()
+	if controller2 == nil {
+		return fmt.Errorf("GetICoreWebView2Controller2 返回 nil")
+	}
+
+	color := COREWEBVIEW2_COLOR{A: 0, R: 0, G: 0, B: 0}
+	err := controller2.PutDefaultBackgroundColor(color)
+	return err
 }
 
 func (e *Chromium) SourceChanged(sender *ICoreWebView2, args *ICoreWebView2SourceChangedEventArgs) uintptr {

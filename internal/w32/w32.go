@@ -63,6 +63,10 @@ var (
 	GetSystemMenu                 = user32.NewProc("GetSystemMenu")
 	EnableMenuItem                = user32.NewProc("EnableMenuItem")
 	SetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
+	GetWindowRect                 = user32.NewProc("GetWindowRect")
+	ReleaseCapture                = user32.NewProc("ReleaseCapture")
+	DwmSetWindowAttribute         = windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
+	CreateMutexW                  = kernel32.NewProc("CreateMutexW")
 )
 
 // ==========================================
@@ -191,9 +195,10 @@ const (
 const (
 	// --- SetWindowPos 坐标与置顶标志 (SetWindowPos Flags) ---
 	HWND_TOPMOST     = ^uintptr(0) // 表示将窗口置顶
-	SWP_NOSIZE       = 0x0001      // 忽略宽度和高度参数（保持当前大小）
-	SWP_NOMOVE       = 0x0002      // 忽略 X 和 Y 参数（保持当前位置）
-	SWP_NOACTIVATE   = 0x0010      // 不激活窗口（保持当前焦点不变）
+	HWND_NOTOPMOST   = ^uintptr(1)
+	SWP_NOSIZE       = 0x0001 // 忽略宽度和高度参数（保持当前大小）
+	SWP_NOMOVE       = 0x0002 // 忽略 X 和 Y 参数（保持当前位置）
+	SWP_NOACTIVATE   = 0x0010 // 不激活窗口（保持当前焦点不变）
 	SWP_NOZOrder     = 0x0004
 	SWP_FRAMECHANGED = 0x0020
 )
@@ -209,6 +214,7 @@ const (
 	// --- 窗口消息 (Window Messages - WM) ---
 	WM_CLOSE        = 0x0010
 	WMDestroy       = 0x0002
+	WM_NCHITTEST    = 0x0084
 	WMMove          = 0x0003
 	WMSize          = 0x0005
 	WMQuit          = 0x0012

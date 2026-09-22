@@ -1,10 +1,39 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <link rel="stylesheet" href="/css/style.css">
+  <style>
+    /* 必须显式写 transparent，否则 Chromium 默认绘制白色背景 */
+    html, body {
+      background: transparent !important;
+      background-color: transparent !important;
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* 中间的悬浮面板，可以自己设置带透明度的背景 */
+    .card {
+      width: 400px;
+      height: 300px;
+      margin: 50px auto;
+      /* 70% 不透明度的黑色卡片，带有圆角和阴影 */
+      background: rgba(30, 30, 30, 0.75);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      color: white;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+      /* 前端自带的毛玻璃 */
+      backdrop-filter: blur(15px);
+    }
+  </style>
 </head>
 <body>
-    <h1 id="title">Loading...</h1>
-    <script src="/js/app.js"></script>
+  <div class="card">
+    <h3 style="-webkit-app-region: drag; cursor: move;">透明浮动窗口</h3>
+    <p>除了这个卡片，周围的区域会直接穿透看到你桌面的软件！</p>
+  </div>
 </body>
 </html>

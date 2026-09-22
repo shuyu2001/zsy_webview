@@ -9,9 +9,9 @@
         "FileSubtype": "00"
     },
     "StringFileInfo": {
-        "Comments": "榜单助手 - by www.shuyuz.com",
+        "Comments": "shuyuz - by www.shuyuz.com",
         "CompanyName": "www.shuyuz.com",
-        "FileDescription": "榜单助手 - by www.shuyuz.com",
+        "FileDescription": "shuyuz - by www.shuyuz.com",
         "FileVersion": "1.0.0.0"
     },
     "VarFileInfo": {

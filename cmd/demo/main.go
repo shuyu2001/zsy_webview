@@ -20,6 +20,7 @@ func main() {
 		Title:       "Windows 11 现代磨砂视效演示",
 		Width:       1000,
 		Height:      650,
+		Icon:        1,
 		Frameless:   false,
 		Transparent: true,
 		Center:      true,

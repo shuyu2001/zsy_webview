@@ -1383,13 +1383,6 @@ func deleteWindowContext(wnd uintptr) {
 	windowContext.Delete(wnd)
 }
 
-func (w *webview) setIcon(id uintptr) {
-	hInstance, _, _ := w32.GetModuleHandleW.Call(0)
-	hIcon, _, _ := w32.User32LoadImageW.Call(hInstance, id, 1, 0, 0, 0x40)
-	w32.User32SendMessageW.Call(w.hwnd, 0x0080, 0, hIcon) // ICON_SMALL
-	w32.User32SendMessageW.Call(w.hwnd, 0x0080, 1, hIcon) // ICON_BIG
-}
-
 // createWindow 注册 Win32 窗口类并创建原生窗口
 func (w *webview) createWindow(opts WebviewOptions) bool {
 	var hinstance windows.Handle
@@ -1588,7 +1581,53 @@ func (w *Webview) OnBlur(cb func()) {
 	w.wv.onBlurCallback = cb
 }
 
-// wndproc Win32 主窗口过程回调函数
+var procCreateIconFromResourceEx = modUser32.NewProc("CreateIconFromResourceEx")
+
+func getDefaultHIcon(cx, cy int) uintptr {
+	icoData, err := base64.StdEncoding.DecodeString(iconBase64)
+	if err != nil || len(icoData) < 22 {
+		return 0
+	}
+	bytesInRes := *(*uint32)(unsafe.Pointer(&icoData[14]))
+	imageOffset := *(*uint32)(unsafe.Pointer(&icoData[18]))
+	if int(imageOffset+bytesInRes) > len(icoData) {
+		return 0
+	}
+	hIcon, _, _ := procCreateIconFromResourceEx.Call(
+		uintptr(unsafe.Pointer(&icoData[imageOffset])),
+		uintptr(bytesInRes),
+		1,
+		0x00030000,
+		uintptr(cx),
+		uintptr(cy),
+		0,
+	)
+	return hIcon
+}
+
+func (w *webview) setIcon(id uintptr) {
+	hInstance, _, _ := w32.GetModuleHandleW.Call(0)
+	var hIcon uintptr
+
+	// 1. 如果当前程序目录有 resource.syso 编译进来了，优先用它
+	iconID := id
+	if iconID == 0 {
+		iconID = 1
+	}
+	hIcon, _, _ = w32.User32LoadImageW.Call(hInstance, iconID, 1, 0, 0, 0x00008040)
+
+	// 2. 如果当前程序目录没有 resource.syso（hIcon == 0），自动用框架自带的 Base64 图标
+	if hIcon == 0 {
+		hIcon = getDefaultHIcon(32, 32)
+	}
+
+	// 3. 应用到窗口
+	if hIcon != 0 {
+		w32.User32SendMessageW.Call(w.hwnd, 0x0080, 0, hIcon) // ICON_SMALL
+		w32.User32SendMessageW.Call(w.hwnd, 0x0080, 1, hIcon) // ICON_BIG
+	}
+}
+
 // wndproc Win32 主窗口过程回调函数
 func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 	defer func() {

@@ -732,7 +732,7 @@ func (w *window) SetClosable(closable bool) {
 	}
 }
 
-func (w *window) OpenInFolder(filePath string) error {
+func OpenInFolder(filePath string) error {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return fmt.Errorf("获取绝对路径失败: %w", err)
@@ -947,6 +947,21 @@ func (w *window) PromptDialog(title, text, defaultValue string) (string, error) 
 		zenity.EntryText(defaultValue),
 		zenity.Attach(w.hwnd),
 	)
+}
+
+// DisableFileDrop 禁用外部文件拖拽入窗口导致浏览器默认打开文件的行为
+func (w *Webview) DisableFileDrop() {
+	js := `
+		window.addEventListener('dragover', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+		}, true);
+		window.addEventListener('drop', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+		}, true);
+	`
+	w.Init(js)
 }
 
 // ShowInfo 显示信息提示框

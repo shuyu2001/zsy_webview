@@ -311,6 +311,7 @@ func (e *Chromium) Resize() {
 func (e *Chromium) Navigate(url string) {
 	err := e.webview.Navigate(url)
 	if err != nil {
+		fmt.Println("err = ", err)
 		e.errorCallback(err)
 	}
 }

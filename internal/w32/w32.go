@@ -152,6 +152,7 @@ const (
 	// --- 窗口显示样式 (Show Window Flags - SW) ---
 	SW_HIDE          = 0
 	SW_SHOWNORMAL    = 1
+	SW_VISIBLE       = 0x10000000
 	SW_SHOWMINIMIZED = 2
 	SW_MAXIMIZE      = 3
 	SW_SHOW          = 5
@@ -194,7 +195,7 @@ const (
 
 const (
 	// --- SetWindowPos 坐标与置顶标志 (SetWindowPos Flags) ---
-	HWND_TOPMOST     = ^uintptr(0) // 表示将窗口置顶
+	HWND_TOPMOST     = ^uintptr(0)
 	HWND_NOTOPMOST   = ^uintptr(1)
 	SWP_NOSIZE       = 0x0001 // 忽略宽度和高度参数（保持当前大小）
 	SWP_NOMOVE       = 0x0002 // 忽略 X 和 Y 参数（保持当前位置）
@@ -226,9 +227,9 @@ const (
 )
 
 const (
-	GWLStyle = ^uintptr(15)
-
-	SC_CLOSE = 0xF060
+	GWLStyle   = ^uintptr(15)
+	GWLExStyle = ^uintptr(19)
+	SC_CLOSE   = 0xF060
 
 	MF_BYCOMMAND = 0x00000000
 	MF_GRAYED    = 0x00000001
@@ -286,4 +287,89 @@ func DestroyWindow(hwnd uintptr) error {
 		return err
 	}
 	return nil
+}
+
+var (
+	// --- 追加 User32 API ---
+	procSetWindowsHookExW   = user32.NewProc("SetWindowsHookExW")
+	procUnhookWindowsHookEx = user32.NewProc("UnhookWindowsHookEx")
+	procCallNextHookEx      = user32.NewProc("CallNextHookEx")
+	procMessageBoxW         = user32.NewProc("MessageBoxW")
+)
+
+const (
+	// CBT 钩子常量
+	WH_CBT        = 5
+	HCBT_ACTIVATE = 5
+
+	// MessageBox 样式与图标
+	MB_OK           = 0x00000000
+	MB_OKCANCEL     = 0x00000001
+	MB_ICONERROR    = 0x00000010
+	MB_ICONQUESTION = 0x00000020
+	MB_ICONWARNING  = 0x00000030
+	MB_ICONINFO     = 0x00000040
+
+	IDOK = 1
+)
+
+// ShowCenteredMessageBox 导出函数：强制让弹窗几何居中于指定父窗口
+func ShowCenteredMessageBox(parentHwnd uintptr, title, message string, uType uint32) int {
+	var hHook uintptr
+	hookProc := syscall.NewCallback(func(nCode int, wParam uintptr, lParam uintptr) uintptr {
+		if nCode == HCBT_ACTIVATE {
+			hMsgBox := wParam
+			var rcOwner, rcMsg Rect
+
+			// 获取父窗口与弹窗的实时矩形
+			GetWindowRect.Call(parentHwnd, uintptr(unsafe.Pointer(&rcOwner)))
+			GetWindowRect.Call(hMsgBox, uintptr(unsafe.Pointer(&rcMsg)))
+
+			msgWidth := rcMsg.Right - rcMsg.Left
+			msgHeight := rcMsg.Bottom - rcMsg.Top
+
+			ownerWidth := rcOwner.Right - rcOwner.Left
+			ownerHeight := rcOwner.Bottom - rcOwner.Top
+
+			// 精确计算居中位置
+			x := rcOwner.Left + (ownerWidth-msgWidth)/2
+			y := rcOwner.Top + (ownerHeight-msgHeight)/2
+
+			// 设置弹窗坐标
+			User32SetWindowPos.Call(
+				hMsgBox,
+				0,
+				uintptr(x),
+				uintptr(y),
+				0,
+				0,
+				SWP_NOSIZE|SWP_NOZOrder|SWP_NOACTIVATE,
+			)
+
+			// 居中完成，立即卸载钩子
+			procUnhookWindowsHookEx.Call(hHook)
+		}
+		res, _, _ := procCallNextHookEx.Call(hHook, uintptr(nCode), wParam, lParam)
+		return res
+	})
+
+	threadID, _, _ := Kernel32GetCurrentThreadID.Call()
+	hHook, _, _ = procSetWindowsHookExW.Call(
+		WH_CBT,
+		hookProc,
+		0,
+		threadID,
+	)
+
+	tPtr, _ := windows.UTF16PtrFromString(title)
+	mPtr, _ := windows.UTF16PtrFromString(message)
+
+	ret, _, _ := procMessageBoxW.Call(
+		parentHwnd,
+		uintptr(unsafe.Pointer(mPtr)),
+		uintptr(unsafe.Pointer(tPtr)),
+		uintptr(uType),
+	)
+
+	return int(ret)
 }

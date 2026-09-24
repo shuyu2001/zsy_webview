@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"io/fs"
 	"log"
 	"mime"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -964,49 +966,52 @@ func (w *Webview) DisableFileDrop() {
 	w.Init(js)
 }
 
-// ShowInfo 显示信息提示框
+// ShowInfo 显示信息提示框（精准居中于所属窗口）
 func (w *window) ShowInfo(title, message string) {
-	tPtr, _ := windows.UTF16PtrFromString(title)
-	mPtr, _ := windows.UTF16PtrFromString(message)
-	const mbIconInfo = 0x00000040
-	_, _ = windows.MessageBox(windows.HWND(w.hwnd), mPtr, tPtr, mbIconInfo)
+	w32.ShowCenteredMessageBox(uintptr(w.hwnd), title, message, w32.MB_ICONINFO)
 }
 
-// ShowWarning 显示警告提示框
+// ShowWarning 显示警告提示框（精准居中于所属窗口）
 func (w *window) ShowWarning(title, message string) {
-	tPtr, _ := windows.UTF16PtrFromString(title)
-	mPtr, _ := windows.UTF16PtrFromString(message)
-	const mbIconWarning = 0x00000030
-	_, _ = windows.MessageBox(windows.HWND(w.hwnd), mPtr, tPtr, mbIconWarning)
+	w32.ShowCenteredMessageBox(uintptr(w.hwnd), title, message, w32.MB_ICONWARNING)
 }
 
-// ShowError 显示错误提示框
+// ShowError 显示错误提示框（精准居中于所属窗口）
 func (w *window) ShowError(title, message string) {
-	tPtr, _ := windows.UTF16PtrFromString(title)
-	mPtr, _ := windows.UTF16PtrFromString(message)
-	const mbIconError = 0x00000010
-	_, _ = windows.MessageBox(windows.HWND(w.hwnd), mPtr, tPtr, mbIconError)
+	w32.ShowCenteredMessageBox(uintptr(w.hwnd), title, message, w32.MB_ICONERROR)
 }
 
-// ShowConfirm 显示确认提示框（确定/取消）
+// ShowConfirm 显示确认提示框（确定/取消，精准居中于所属窗口）
 func (w *window) ShowConfirm(title, message string) bool {
-	tPtr, _ := windows.UTF16PtrFromString(title)
-	mPtr, _ := windows.UTF16PtrFromString(message)
-	const (
-		mbOkCancel     = 0x00000001
-		mbIconQuestion = 0x00000020
-		idOk           = 1
-	)
-	ret, _ := windows.MessageBox(windows.HWND(w.hwnd), mPtr, tPtr, mbOkCancel|mbIconQuestion)
-	return ret == idOk
+	ret := w32.ShowCenteredMessageBox(uintptr(w.hwnd), title, message, w32.MB_OKCANCEL|w32.MB_ICONQUESTION)
+	return ret == w32.IDOK
 }
 
-// SelectColorDialog 弹出颜色选择器并返回十六进制颜色值
+// SelectColorDialog 弹出颜色选择器（绑定窗口句柄并支持解析默认颜色）
 func (w *window) SelectColorDialog(title string, defaultColorHex string) string {
-	c, err := zenity.SelectColor(
+	opts := []zenity.Option{
 		zenity.Title(title),
 		zenity.Attach(w.hwnd),
-	)
+	}
+
+	// 解析传入的默认十六进制颜色（例如 #2ed573 或 2ed573）
+	hex := strings.TrimPrefix(defaultColorHex, "#")
+	if len(hex) == 6 {
+		if r, err := strconv.ParseUint(hex[0:2], 16, 8); err == nil {
+			if g, err := strconv.ParseUint(hex[2:4], 16, 8); err == nil {
+				if b, err := strconv.ParseUint(hex[4:6], 16, 8); err == nil {
+					opts = append(opts, zenity.Color(color.RGBA{
+						R: uint8(r),
+						G: uint8(g),
+						B: uint8(b),
+						A: 255,
+					}))
+				}
+			}
+		}
+	}
+
+	c, err := zenity.SelectColor(opts...)
 	if err != nil {
 		return ""
 	}
@@ -1551,13 +1556,12 @@ func (w *webview) createWindow(opts WebviewOptions) bool {
 	case opts.StartMaximized:
 		showMode = w32.SW_MAXIMIZE
 	case opts.StartMinimized:
-		showMode = w32.SW_SHOWMINIMIZED
+		showMode = w32.SW_MINIMIZE
 	}
 
 	w32.User32ShowWindow.Call(w.hwnd, showMode)
-	w32.User32UpdateWindow.Call(w.hwnd)
 	w32.User32SetFocus.Call(w.hwnd)
-
+	w32.User32UpdateWindow.Call(w.hwnd)
 	return true
 }
 

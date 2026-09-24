@@ -1,31 +1,300 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body {
+    width: 100vw; height: 100vh;
+    background: transparent !important;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .hud-container {
+    width: 100%; height: 100%;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    cursor: move;
+  }
+  /* 顶部状态与工具栏 */
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    opacity: 0.2;
+    transition: opacity 0.2s ease;
+  }
+  .hud-container:hover .hud-header {
+    opacity: 1;
+  }
+  .hud-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 0 4px #000;
+    letter-spacing: 1px;
+  }
+  .tools {
+    display: flex;
+    gap: 6px;
+  }
+  .btn-icon {
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #eee;
+    font-size: 11px;
+    border-radius: 3px;
+    padding: 2px 6px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .btn-icon:hover { background: #333; color: #fff; }
+  .btn-close:hover { background: #e84118; border-color: #e84118; }
+
+  /* 股票列表条目 */
+  .stock-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .stock-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+  }
+  .stock-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    max-width: 90px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 6px rgba(0,0,0,0.9);
+  }
+  .stock-price {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(0,0,0,0.9);
+  }
+  .stock-rate {
+    font-size: 13px;
+    font-weight: 800;
+    width: 68px;
+    text-align: right;
+  }
+
+  /* A股标准配色：红涨绿跌，平盘白色带描边 */
+  .up {
+    color: #ff4d4f;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(255, 77, 79, 0.4);
+  }
+  .down {
+    color: #2ed573;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 8px rgba(46, 213, 115, 0.4);
+  }
+  .flat {
+    color: #dcdde1;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+  }
+  .empty-tip {
+    font-size: 12px;
+    color: #aaa;
+    text-align: center;
+    margin-top: 20px;
+    text-shadow: 0 0 3px #000;
+  }
+</style>
 </head>
-
 <body>
-    <h1 id="h1">Hello World</h1>
-</body>
-<script>
-    window.addEventListener("myEvent", (event) => {
-        console.log(event.detail)
-    })
-    window.chrome.webview.addEventListener('message', (event) => {
-        console.log(event)
-        const rawData = event.data;
-        console.log("收到来自 Go 的原生消息:", rawData.num);
+  <div class="hud-container" id="dragArea">
+    <div class="hud-header">
+      <span class="hud-title">STOCK TICKER</span>
+      <div class="tools">
+        <button class="btn-icon" onclick="openSettings(event)" title="设置 (Ctrl+J)">⚙</button>
+        <button class="btn-icon btn-close" onclick="exitApp(event)">✕</button>
+      </div>
+    </div>
+    <div class="stock-list" id="stockList">
+      <div class="empty-tip">正在同步行情...</div>
+    </div>
+  </div>
 
-        document.querySelector("#h1").textContent = rawData.num;
+  <script>
+    // 窗口平滑拖动
+    const dragArea = document.getElementById('dragArea');
+    dragArea.addEventListener('mousedown', (e) => {
+      if (e.target.tagName !== 'BUTTON') {
+        window.chrome.webview.postMessage('__drag__');
+      }
     });
-    setInterval(() => {
-        // const msg = { action: "play_audio", url: "https://shuyuz.app/" };
-        chrome.webview.postMessage({ action: "play_audio", url: "https://shuyuz.app/" });
-        chrome.webview.postMessage("hello");
-        window.hello()
-    }, 1000);
-</script>
 
+    function openSettings(e) {
+      e.stopPropagation();
+      window.openSettings();
+    }
+
+    function exitApp(e) {
+      e.stopPropagation();
+      window.exitApp();
+    }
+
+    // Go 端定时推送更新
+    window.renderStocks = function(stocks) {
+      const container = document.getElementById('stockList');
+      if (!stocks || stocks.length === 0) {
+        container.innerHTML = '<div class="empty-tip">未配置自选股 (点⚙添加)</div>';
+        return;
+      }
+
+      container.innerHTML = stocks.map(s => {
+        let cls = 'flat';
+        let sign = '';
+        if (s.change_rate > 0) {
+          cls = 'up';
+          sign = '+';
+        } else if (s.change_rate < 0) {
+          cls = 'down';
+        }
+
+        return `
+          <div class="stock-row">
+            <span class="stock-name" title="${s.name} (${s.code})">${s.name}</span>
+            <span class="stock-price ${cls}">${s.current.toFixed(2)}</span>
+            <span class="stock-rate ${cls}">${sign}${s.change_rate.toFixed(2)}%</span>
+          </div>
+        `;
+      }).join('');
+    };
+  </script>
+</body>
+</html>
+`
+
+const settingsHTML = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, "Microsoft YaHei", sans-serif; }
+  body { background: #f5f6fa; padding: 20px; color: #2f3542; }
+  h2 { font-size: 18px; margin-bottom: 16px; font-weight: 700; color: #1e272e; }
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #57606f; }
+  .input-row { display: flex; gap: 8px; }
+  input[type="text"], input[type="number"] {
+    flex: 1; padding: 8px 12px; border: 1px solid #ced6e0; border-radius: 6px; outline: none; font-size: 14px;
+  }
+  input:focus { border-color: #1e90ff; box-shadow: 0 0 0 2px rgba(30,144,255,0.2); }
+  button {
+    background: #1e90ff; color: #fff; border: none; padding: 8px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;
+  }
+  button:hover { background: #0984e3; }
+  .stock-chips {
+    display: flex; flex-wrap: wrap; gap: 8px; min-height: 48px; max-height: 180px; overflow-y: auto;
+    background: #fff; border: 1px solid #dcdde1; border-radius: 6px; padding: 8px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; background: #e4e7eb; border-radius: 4px;
+    padding: 4px 8px; font-size: 13px; font-weight: 500;
+  }
+  .chip-remove { margin-left: 6px; cursor: pointer; color: #eb4d4b; font-weight: 700; }
+  .chip-remove:hover { color: #c0392b; }
+  .hint { font-size: 12px; color: #8395a7; margin-top: 5px; line-height: 1.4; }
+  .footer { margin-top: 24px; display: flex; justify-content: flex-end; gap: 10px; }
+  .btn-save { background: #2ed573; }
+  .btn-save:hover { background: #26af5f; }
+</style>
+</head>
+<body>
+  <h2>⚙ 监控偏好设置</h2>
+  
+  <div class="form-group">
+    <label>刷新间隔（秒）</label>
+    <input type="number" id="intervalInput" min="1" max="60" value="3" />
+  </div>
+
+  <div class="form-group">
+    <label>添加标的代码</label>
+    <div class="input-row">
+      <input type="text" id="codeInput" placeholder="如: sh600519, sz000001" />
+      <button onclick="addStock()">添加</button>
+    </div>
+    <div class="hint">前缀规则：上海 <code>sh</code> (如 sh600519/sh000001)，深圳 <code>sz</code> (如 sz000001)，北京 <code>bj</code></div>
+  </div>
+
+  <div class="form-group">
+    <label>当前监控标的</label>
+    <div class="stock-chips" id="chipsList"></div>
+  </div>
+
+  <div class="footer">
+    <button class="btn-save" onclick="save()">保存并生效</button>
+  </div>
+
+  <script>
+    let currentCodes = [];
+
+    // 初始化加载配置
+    window.addEventListener('DOMContentLoaded', async () => {
+      if (window.getConfig) {
+        const res = await window.getConfig();
+        const conf = JSON.parse(res);
+        currentCodes = conf.codes || [];
+        document.getElementById('intervalInput').value = conf.interval || 3;
+        renderChips();
+      }
+    });
+
+    function renderChips() {
+      const container = document.getElementById('chipsList');
+      if (currentCodes.length === 0) {
+        container.innerHTML = '<span style="font-size:12px;color:#999;">暂无标的</span>';
+        return;
+      }
+      container.innerHTML = currentCodes.map((code, idx) => `
+        <span class="chip">
+          ${code}
+          <span class="chip-remove" onclick="removeStock(${idx})">&times;</span>
+        </span>
+      `).join('');
+    }
+
+    function addStock() {
+      const input = document.getElementById('codeInput');
+      const val = input.value.trim().toLowerCase();
+      if (!val) return;
+      if (!currentCodes.includes(val)) {
+        currentCodes.push(val);
+        renderChips();
+      }
+      input.value = '';
+    }
+
+    function removeStock(idx) {
+      currentCodes.splice(idx, 1);
+      renderChips();
+    }
+
+    async function save() {
+      const interval = parseInt(document.getElementById('intervalInput').value, 10) || 3;
+      if (window.saveConfig) {
+        await window.saveConfig(currentCodes, interval);
+        alert('配置保存成功！');
+      }
+    }
+
+    // 回车直接添加
+    document.getElementById('codeInput').addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') addStock();
+    });
+  </script>
+</body>
 </html>
